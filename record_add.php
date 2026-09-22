@@ -12,6 +12,10 @@ $currency = get_setting('currency', 'QR');
 $error = '';
 $prefill_qid = trim($_GET['prefill_qid'] ?? '');
 $prefill_name = trim($_GET['prefill_name'] ?? '');
+$prefill_nationality = trim($_GET['prefill_nationality'] ?? '');
+$prefill_job = trim($_GET['prefill_job'] ?? '');
+$prefill_expiry = trim($_GET['prefill_expiry'] ?? '');
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $full_name = trim($_POST['full_name'] ?? '');
     $qid_number = trim($_POST['qid_number'] ?? '');
@@ -142,7 +146,7 @@ include __DIR__ . '/includes/header.php';
 
                         <div class="col-md-4">
                             <label class="form-label">QID Expiry Date <span class="text-danger">*</span></label>
-                            <input type="date" name="expiry_date" class="form-control" required value="<?= htmlspecialchars($_POST['expiry_date'] ?? '') ?>">
+                            <input type="date" name="expiry_date" class="form-control" required value="<?= htmlspecialchars($_POST['expiry_date'] ?? $prefill_expiry) ?>">
                             <div class="form-text">System alerts when expiry is within configured days.</div>
                         </div>
 
@@ -153,7 +157,7 @@ include __DIR__ . '/includes/header.php';
 
                         <div class="col-md-4">
                             <label class="form-label">Nationality</label>
-                            <input type="text" name="nationality" class="form-control" placeholder="e.g. Qatari, Egyptian, Indian" value="<?= htmlspecialchars($_POST['nationality'] ?? '') ?>">
+                            <input type="text" name="nationality" class="form-control" placeholder="e.g. Qatari, Egyptian, Indian" value="<?= htmlspecialchars($_POST['nationality'] ?? $prefill_nationality) ?>">
                         </div>
 
                         <div class="col-md-6">
@@ -163,7 +167,7 @@ include __DIR__ . '/includes/header.php';
 
                         <div class="col-md-6">
                             <label class="form-label">Job Title / Designation</label>
-                            <input type="text" name="job_title" class="form-control" placeholder="e.g. Sales Executive / Engineer" value="<?= htmlspecialchars($_POST['job_title'] ?? '') ?>">
+                            <input type="text" name="job_title" class="form-control" placeholder="e.g. Sales Executive / Engineer" value="<?= htmlspecialchars($_POST['job_title'] ?? $prefill_job) ?>">
                         </div>
                     </div>
                 </div>

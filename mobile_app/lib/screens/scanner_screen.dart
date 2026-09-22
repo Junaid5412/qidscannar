@@ -124,21 +124,24 @@ class _ScannerScreenState extends State<ScannerScreen> {
       
       String extractedQid = '';
       String extractedName = '';
+      String extractedNationality = '';
+      String extractedJob = '';
+      String extractedExpiry = '';
 
-      // MULTI-MATCH HEURISTICS FOR QATAR ID & NAME
+      // MULTI-MATCH HEURISTICS FOR QATAR ID & ALL DATA FIELDS
       final lines = recognizedText.blocks.expand((b) => b.lines).map((l) => l.text).toList();
+      final commonNationalities = ['INDIA', 'PAKISTAN', 'BANGLADESH', 'NEPAL', 'PHILIPPINES', 'SRI LANKA', 'EGYPT', 'SUDAN', 'SYRIA', 'JORDAN', 'LEBANON', 'KENYA', 'UGANDA', 'MOROCCO', 'TUNISIA', 'ALGERIA', 'YEMEN', 'INDONESIA', 'MALAYSIA', 'TURKEY', 'NIGERIA', 'GHANA'];
       
       for (int i = 0; i < lines.length; i++) {
         final line = lines[i].trim();
+        final lineUpper = line.toUpperCase();
         
         // 1. Check for QID or Serial Number ending in QID
         if (extractedQid.isEmpty) {
-           // Exact 11 digits
            final qidMatch = RegExp(r'(?<!\d)(\d{11})(?!\d)').firstMatch(line);
            if (qidMatch != null) {
              extractedQid = qidMatch.group(1)!;
            } else {
-             // Serial ending in 11 digits (remove spaces to be safe)
              final noSpaceLine = line.replaceAll(' ', '');
              final serialMatch = RegExp(r'[A-Z0-9]+(\d{11})$').firstMatch(noSpaceLine);
              if (serialMatch != null) {
@@ -147,14 +150,47 @@ class _ScannerScreenState extends State<ScannerScreen> {
            }
         }
 
-        // 2. Name heuristic: All caps English words (usually Name is printed in English caps)
-        if (extractedName.isEmpty && RegExp(r'^[A-Z\s\-]+$').hasMatch(line) && line.length > 6) {
-           // Exclude common QID labels
-           if (!line.contains('STATE OF QATAR') && 
-               !line.contains('ID NUMBER') && 
-               !line.contains('QATAR') && 
-               !line.contains('DOB')) {
-               extractedName = line;
+        // 2. Expiry Date (YYYY-MM-DD, DD/MM/YYYY, DD-MM-YYYY)
+        if (extractedExpiry.isEmpty) {
+            final dateMatches = RegExp(r'\b(\d{2}[-/]\d{2}[-/]\d{4}|\d{4}[-/]\d{2}[-/]\d{2})\b').allMatches(line);
+            for (final m in dateMatches) {
+               final d = m.group(1)!;
+               // Expiry usually >= 2023. DOB usually < 2010.
+               if (d.contains('202') || d.contains('203')) {
+                  if (RegExp(r'^\d{2}[-/]\d{2}[-/]\d{4}$').hasMatch(d)) {
+                     final parts = d.split(RegExp(r'[-/]'));
+                     extractedExpiry = '${parts[2]}-${parts[1]}-${parts[0]}'; // Convert to YYYY-MM-DD
+                  } else if (RegExp(r'^\d{4}[-/]\d{2}[-/]\d{2}$').hasMatch(d)) {
+                     extractedExpiry = d.replaceAll('/', '-');
+                  }
+               }
+            }
+        }
+
+        // 3. Nationality (match against known common countries)
+        if (extractedNationality.isEmpty) {
+           for (final nat in commonNationalities) {
+              if (lineUpper.contains(nat)) {
+                 extractedNationality = nat;
+                 break;
+              }
+           }
+        }
+
+        // 4. Name and Job heuristics (All caps English words)
+        if (RegExp(r'^[A-Z\s\-]+$').hasMatch(lineUpper) && lineUpper.length > 5) {
+           if (!lineUpper.contains('STATE OF QATAR') && 
+               !lineUpper.contains('ID NUMBER') && 
+               !lineUpper.contains('DOB') &&
+               !lineUpper.contains('DATE') &&
+               !lineUpper.contains('BLOOD') &&
+               !lineUpper.contains('MINISTRY')) {
+               
+               if (extractedName.isEmpty) {
+                   extractedName = line;
+               } else if (extractedJob.isEmpty && lineUpper != extractedNationality) {
+                   extractedJob = line;
+               }
            }
         }
       }
@@ -162,7 +198,12 @@ class _ScannerScreenState extends State<ScannerScreen> {
       await textRecognizer.close();
 
       if (extractedQid.isNotEmpty) {
-        await _handleScan(extractedQid, 'ocr', extractedName);
+        await _handleScan(extractedQid, 'ocr', {
+          'name': extractedName,
+          'nationality': extractedNationality,
+          'job': extractedJob,
+          'expiry': extractedExpiry,
+        });
       } else {
         setState(() => _isSyncing = false);
         if (!mounted) return;
@@ -182,7 +223,7 @@ class _ScannerScreenState extends State<ScannerScreen> {
     }
   }
 
-  Future<void> _handleScan(String qid, String scanType, [String cardName = '']) async {
+  Future<void> _handleScan(String qid, String scanType, [Map<String, String> cardData = const {}]) async {
     setState(() {
       _isPaused = true;
       _isSyncing = true;
@@ -192,7 +233,7 @@ class _ScannerScreenState extends State<ScannerScreen> {
     HapticFeedback.heavyImpact();
     SystemSound.play(SystemSoundType.click);
 
-    final res = await ApiService.pushScan(qidNumber: qid, scanType: scanType, cardName: cardName);
+    final res = await ApiService.pushScan(qidNumber: qid, scanType: scanType, cardData: cardData);
 
     setState(() {
       _isSyncing = false;

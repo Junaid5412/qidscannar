@@ -85,7 +85,7 @@ class ApiService {
   static Future<Map<String, dynamic>> pushScan({
     required String qidNumber,
     String scanType = 'barcode',
-    String cardName = '',
+    Map<String, String> cardData = const {},
   }) async {
     final baseUrl = await StorageService.getServerUrl();
     final token = await StorageService.getAuthToken();
@@ -97,19 +97,26 @@ class ApiService {
     final uri = Uri.parse('$baseUrl/api/scan_push.php');
 
     try {
+      final requestBody = {
+        'qid_number': qidNumber.trim(),
+        'scan_type': scanType,
+        'device_name': Platform.isIOS ? 'Apple iPhone' : 'Android Device',
+        'auth_token': token, // Fallback parameter
+      };
+
+      // Inject OCR extracted fields
+      if (cardData.containsKey('name')) requestBody['card_data[name]'] = cardData['name']!;
+      if (cardData.containsKey('nationality')) requestBody['card_data[nationality]'] = cardData['nationality']!;
+      if (cardData.containsKey('job')) requestBody['card_data[job]'] = cardData['job']!;
+      if (cardData.containsKey('expiry')) requestBody['card_data[expiry]'] = cardData['expiry']!;
+
       final response = await http.post(
         uri,
         headers: {
           'Authorization': 'Bearer $token',
           'X-Auth-Token': token,
         },
-        body: {
-          'qid_number': qidNumber.trim(),
-          'scan_type': scanType,
-          'device_name': Platform.isIOS ? 'Apple iPhone' : 'Android Device',
-          'auth_token': token, // Fallback parameter
-          'card_data[name]': cardName.trim(), // Send OCR name if available
-        },
+        body: requestBody,
       ).timeout(const Duration(seconds: 8));
 
       final data = jsonDecode(response.body) as Map<String, dynamic>;

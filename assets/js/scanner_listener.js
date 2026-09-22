@@ -220,10 +220,19 @@
             `;
 
             const cardName = data.card_extracted?.name || '';
-            const nameParam = cardName ? `&prefill_name=${encodeURIComponent(cardName)}` : '';
+            const cardNat = data.card_extracted?.nationality || '';
+            const cardJob = data.card_extracted?.job || '';
+            const cardExp = data.card_extracted?.expiry || '';
+
+            let params = `prefill_qid=${encodeURIComponent(qid)}`;
+            if (cardName) params += `&prefill_name=${encodeURIComponent(cardName)}`;
+            if (cardNat) params += `&prefill_nationality=${encodeURIComponent(cardNat)}`;
+            if (cardJob) params += `&prefill_job=${encodeURIComponent(cardJob)}`;
+            if (cardExp) params += `&prefill_expiry=${encodeURIComponent(cardExp)}`;
+
             footerEl.innerHTML = `
                 <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Dismiss</button>
-                <a href="record_add.php?prefill_qid=${encodeURIComponent(qid)}${nameParam}" class="btn btn-success btn-sm px-4 fw-bold">
+                <a href="record_add.php?${params}" class="btn btn-success btn-sm px-4 fw-bold">
                     <i class="fa-solid fa-plus me-1"></i> Register This Person Now
                 </a>
             `;
