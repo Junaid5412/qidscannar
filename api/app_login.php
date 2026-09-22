@@ -48,6 +48,13 @@ if (!$user || !password_verify($password, $user['password_hash'])) {
     exit;
 }
 
+// Block inactive accounts
+if (isset($user['status']) && $user['status'] === 'inactive') {
+    http_response_code(403);
+    echo json_encode(['success' => false, 'message' => 'Your account has been deactivated. Contact an administrator.']);
+    exit;
+}
+
 // Generate secure persistent mobile API token (64 hex characters)
 $token = bin2hex(random_bytes(32));
 

@@ -96,6 +96,14 @@ $company_name = get_setting('company_name', 'Qatar Business Solutions');
 
             <div class="sidebar-heading mt-3">Preferences & Cloud</div>
             <ul class="sidebar-nav-list">
+                <?php if (is_admin()): ?>
+                <li class="sidebar-nav-item">
+                    <a href="users.php" class="sidebar-nav-link <?= ($current_page === 'users.php') ? 'active' : '' ?>">
+                        <i class="fa-solid fa-users-gear"></i>
+                        <span>User Management</span>
+                    </a>
+                </li>
+                <?php endif; ?>
                 <li class="sidebar-nav-item">
                     <a href="settings.php" class="sidebar-nav-link <?= ($current_page === 'settings.php') ? 'active' : '' ?>">
                         <i class="fa-solid fa-sliders"></i>

@@ -128,8 +128,13 @@ function login_user($username, $password, $remember = false) {
         return ['success' => false, 'message' => 'Invalid username or password. Please try again.'];
     }
 
-    if (!password_verify($password, $user['password_hash'])) {
+    if (!$user || !password_verify($password, $user['password_hash'])) {
         return ['success' => false, 'message' => 'Invalid username or password. Please try again.'];
+    }
+
+    // Check if user account is active
+    if (isset($user['status']) && $user['status'] === 'inactive') {
+        return ['success' => false, 'message' => 'Your account has been deactivated. Contact an administrator.'];
     }
 
     // Successful login: regenerate session ID to prevent fixation
@@ -191,3 +196,18 @@ function get_current_user_profile() {
         'role'      => $_SESSION['qid_role'] ?? 'admin'
     ];
 }
+
+/**
+ * Check if current user is an admin
+ */
+function is_admin() {
+    return ($_SESSION['qid_role'] ?? '') === 'admin';
+}
+
+/**
+ * Check if current user has at least staff-level access (admin or staff)
+ */
+function is_staff_or_admin() {
+    return in_array($_SESSION['qid_role'] ?? '', ['admin', 'staff']);
+}
+
