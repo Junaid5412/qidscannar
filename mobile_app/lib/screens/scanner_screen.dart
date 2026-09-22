@@ -71,23 +71,34 @@ class _ScannerScreenState extends State<ScannerScreen> {
       if (rawValue == null || rawValue.trim().isEmpty) continue;
 
       final qid = _extractQid(rawValue.trim());
-      if (qid.isNotEmpty) {
+      // Strictly ensure the QID is valid before triggering the API
+      if (qid.isNotEmpty && qid.length == 11) {
         _handleScan(qid, 'barcode');
-        break;
+        break; // Stop processing other barcodes in this frame once a valid QID is found
       }
     }
   }
 
   String _extractQid(String raw) {
+    // Try to find exactly 11 digits bounded by non-word characters
     final match = _qidRegex.firstMatch(raw);
     if (match != null) {
       return match.group(1)!;
     }
+    
+    // Fallback: Strip all non-numeric characters from the scanned data
     final digits = raw.replaceAll(RegExp(r'[^0-9]'), '');
-    if (digits.length == 11) return digits;
-    if (digits.length > 11) return digits.substring(0, 11);
-    if (digits.length >= 8) return digits;
-    return raw;
+    
+    // STRICT VALIDATION: Qatar ID must be EXACTLY 11 digits.
+    // If it's less than 11, it's a partial scan (camera hasn't focused fully).
+    // If it's more than 11, it's invalid barcode data.
+    if (digits.length == 11) {
+      return digits;
+    }
+    
+    // Returning empty forces the scanner to ignore this frame and keep scanning
+    // until the camera properly focuses and reads the full 11 digits.
+    return '';
   }
 
   Future<void> _handleScan(String qid, String scanType) async {
