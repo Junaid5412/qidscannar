@@ -1,0 +1,97 @@
+name: Build QID Scanner (Android APK & iOS)
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch: # Allows 1-click manual trigger from GitHub Actions
+
+jobs:
+  # ------------------------------------------------------------
+  # JOB 1: Build Android APK (Debug & Release)
+  # ------------------------------------------------------------
+  build_android:
+    name: Build Android APK
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Java JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Set up Flutter SDK
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          cache: true
+
+      - name: Install Dependencies
+        working-directory: ./mobile_app
+        run: flutter pub get
+
+      - name: Build Android APKs (Release & Debug)
+        working-directory: ./mobile_app
+        run: |
+          flutter build apk --release
+          flutter build apk --debug
+
+      - name: Stage Android APK Artifacts
+        run: |
+          mkdir -p android_apks
+          cp mobile_app/build/app/outputs/flutter-apk/app-release.apk android_apks/qid-scanner-release.apk || true
+          cp mobile_app/build/app/outputs/flutter-apk/app-debug.apk android_apks/qid-scanner-debug.apk || true
+          ls -lh android_apks
+
+      - name: Upload Android APK Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: QID-Scanner-Android-APK
+          path: android_apks/*.apk
+          retention-days: 30
+
+  # ------------------------------------------------------------
+  # JOB 2: Build iOS App Bundle (iPhone)
+  # ------------------------------------------------------------
+  build_ios:
+    name: Build iOS Bundle (iPhone)
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter SDK
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          cache: true
+
+      - name: Install Dependencies
+        working-directory: ./mobile_app
+        run: flutter pub get
+
+      - name: Build iOS Application
+        working-directory: ./mobile_app
+        run: |
+          flutter build ios --release --no-codesign
+
+      - name: Package iOS Runner Archive
+        run: |
+          mkdir -p ios_output
+          cd mobile_app/build/ios/iphoneos
+          zip -r -y ../../../../ios_output/qid-scanner-ios-app.zip Runner.app
+          cd ../../../..
+          ls -lh ios_output
+
+      - name: Upload iOS Application Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: QID-Scanner-iOS-App
+          path: ios_output/qid-scanner-ios-app.zip
+          retention-days: 30

@@ -1,0 +1,340 @@
+import 'package:flutter/material.dart';
+import '../services/api_service.dart';
+import '../services/storage_service.dart';
+import 'scanner_screen.dart';
+
+class LoginScreen extends StatefulWidget {
+  const LoginScreen({Key? key}) : super(key: key);
+
+  @override
+  State<LoginScreen> createState() => _LoginScreenState();
+}
+
+class _LoginScreenState extends State<LoginScreen> {
+  final _serverController = TextEditingController();
+  final _usernameController = TextEditingController();
+  final _passwordController = TextEditingController();
+
+  bool _obscurePassword = true;
+  bool _isLoading = false;
+  bool _isTesting = false;
+  String? _statusMessage;
+  bool _isStatusPositive = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadSavedUrl();
+  }
+
+  Future<void> _loadSavedUrl() async {
+    final savedUrl = await StorageService.getServerUrl();
+    if (savedUrl.isNotEmpty) {
+      _serverController.text = savedUrl;
+    }
+  }
+
+  Future<void> _testConnection() async {
+    final url = _serverController.text.trim();
+    if (url.isEmpty) {
+      _setStatus('Please enter your Server URL first.', false);
+      return;
+    }
+
+    setState(() {
+      _isTesting = true;
+      _statusMessage = 'Pinging server...';
+      _isStatusPositive = true;
+    });
+
+    final res = await ApiService.testConnection(url);
+
+    setState(() {
+      _isTesting = false;
+      _statusMessage = res['message'];
+      _isStatusPositive = res['success'] == true;
+    });
+  }
+
+  Future<void> _login() async {
+    final url = _serverController.text.trim();
+    final username = _usernameController.text.trim();
+    final password = _passwordController.text.trim();
+
+    if (url.isEmpty || username.isEmpty || password.isEmpty) {
+      _setStatus('Please fill in all fields.', false);
+      return;
+    }
+
+    setState(() {
+      _isLoading = true;
+      _statusMessage = null;
+    });
+
+    final res = await ApiService.login(
+      serverUrl: url,
+      username: username,
+      password: password,
+    );
+
+    setState(() {
+      _isLoading = false;
+    });
+
+    if (res['success'] == true) {
+      if (!mounted) return;
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(builder: (_) => const ScannerScreen()),
+      );
+    } else {
+      _setStatus(res['message'] ?? 'Login failed.', false);
+    }
+  }
+
+  void _setStatus(String msg, bool positive) {
+    setState(() {
+      _statusMessage = msg;
+      _isStatusPositive = positive;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: const Color(0xFF0F172A),
+      body: SafeArea(
+        child: Center(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(24.0),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                // Top Brand Icon
+                Container(
+                  width: 72,
+                  height: 72,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF8A1538).withOpacity(0.15),
+                    shape: BoxShape.circle,
+                    border: Border.all(color: const Color(0xFF8A1538), width: 2),
+                  ),
+                  child: const Icon(
+                    Icons.qr_code_scanner_rounded,
+                    size: 38,
+                    color: Color(0xFF8A1538),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                const Text(
+                  'QID Sync Scanner',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 22,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                const Text(
+                  'Real-Time Cross-Platform Desktop Sync',
+                  style: TextStyle(color: Color(0xFF94A3B8), fontSize: 13),
+                ),
+                const SizedBox(height: 32),
+
+                // Form Container
+                Container(
+                  padding: const EdgeInsets.all(20),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF1E293B),
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: const Color(0xFF334155)),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // Server URL
+                      const Text(
+                        'SERVER URL',
+                        style: TextStyle(
+                          color: Color(0xFF94A3B8),
+                          fontSize: 11,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      TextField(
+                        controller: _serverController,
+                        style: const TextStyle(color: Colors.white, fontSize: 14),
+                        keyboardType: TextInputType.url,
+                        decoration: InputDecoration(
+                          hintText: 'https://yourdomain.com/QID',
+                          hintStyle: const TextStyle(color: Color(0xFF64748B)),
+                          filled: true,
+                          fillColor: const Color(0xFF0F172A),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(10),
+                            borderSide: const BorderSide(color: Color(0xFF334155)),
+                          ),
+                          focusedBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(10),
+                            borderSide: const BorderSide(color: Color(0xFF8A1538), width: 2),
+                          ),
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+
+                      // Test Connection Button
+                      SizedBox(
+                        width: double.infinity,
+                        height: 38,
+                        child: OutlinedButton.icon(
+                          onPressed: _isTesting ? null : _testConnection,
+                          icon: _isTesting
+                              ? const SizedBox(
+                                  width: 14,
+                                  height: 14,
+                                  child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                                )
+                              : const Icon(Icons.wifi_tethering_rounded, size: 16),
+                          label: Text(
+                            _isTesting ? 'Testing...' : 'Test Server Connection',
+                            style: const TextStyle(fontSize: 12),
+                          ),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: const Color(0xFFCBD5E1),
+                            side: const BorderSide(color: Color(0xFF334155)),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+
+                      // Username
+                      const Text(
+                        'USERNAME',
+                        style: TextStyle(
+                          color: Color(0xFF94A3B8),
+                          fontSize: 11,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      TextField(
+                        controller: _usernameController,
+                        style: const TextStyle(color: Colors.white, fontSize: 14),
+                        decoration: InputDecoration(
+                          hintText: 'Enter staff username',
+                          hintStyle: const TextStyle(color: Color(0xFF64748B)),
+                          filled: true,
+                          fillColor: const Color(0xFF0F172A),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(10),
+                            borderSide: const BorderSide(color: Color(0xFF334155)),
+                          ),
+                          focusedBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(10),
+                            borderSide: const BorderSide(color: Color(0xFF8A1538), width: 2),
+                          ),
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+
+                      // Password
+                      const Text(
+                        'PASSWORD',
+                        style: TextStyle(
+                          color: Color(0xFF94A3B8),
+                          fontSize: 11,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      TextField(
+                        controller: _passwordController,
+                        obscureText: _obscurePassword,
+                        style: const TextStyle(color: Colors.white, fontSize: 14),
+                        decoration: InputDecoration(
+                          hintText: 'Enter staff password',
+                          hintStyle: const TextStyle(color: Color(0xFF64748B)),
+                          filled: true,
+                          fillColor: const Color(0xFF0F172A),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(10),
+                            borderSide: const BorderSide(color: Color(0xFF334155)),
+                          ),
+                          focusedBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(10),
+                            borderSide: const BorderSide(color: Color(0xFF8A1538), width: 2),
+                          ),
+                          suffixIcon: IconButton(
+                            icon: Icon(
+                              _obscurePassword ? Icons.visibility_off : Icons.visibility,
+                              color: const Color(0xFF64748B),
+                              size: 18,
+                            ),
+                            onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
+                          ),
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                        ),
+                      ),
+                      const SizedBox(height: 24),
+
+                      // Login Button
+                      SizedBox(
+                        width: double.infinity,
+                        height: 48,
+                        child: ElevatedButton(
+                          onPressed: _isLoading ? null : _login,
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFF8A1538),
+                            foregroundColor: Colors.white,
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                            elevation: 2,
+                          ),
+                          child: _isLoading
+                              ? const SizedBox(
+                                  width: 20,
+                                  height: 20,
+                                  child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                                )
+                              : const Text(
+                                  'Login & Connect',
+                                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
+                                ),
+                        ),
+                      ),
+
+                      // Status message
+                      if (_statusMessage != null) ...[
+                        const SizedBox(height: 14),
+                        Center(
+                          child: Text(
+                            _statusMessage!,
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              color: _isStatusPositive ? const Color(0xFF10B981) : const Color(0xFFEF4444),
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+
+                const SizedBox(height: 24),
+                const Text(
+                  'Fast Per-User Sync: Login with the same staff account as your desktop browser session.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: Color(0xFF64748B), fontSize: 11),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
