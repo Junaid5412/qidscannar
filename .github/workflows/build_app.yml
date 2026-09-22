@@ -109,6 +109,9 @@ jobs:
           flutter create --platforms=ios --org com.qid --project-name qid_scanner .
           plutil -insert NSCameraUsageDescription -string "This app requires camera access to scan Qatar ID card barcodes." ios/Runner/Info.plist || true
           plutil -insert NSAppTransportSecurity -xml "<dict><key>NSAllowsArbitraryLoads</key><true/></dict>" ios/Runner/Info.plist || true
+          # Force iOS 15.5 deployment target for ML Kit compatibility
+          sed -i '' -E "s/^#? ?platform :ios.*/platform :ios, '15.5'/" ios/Podfile
+          sed -i '' -E "s/IPHONEOS_DEPLOYMENT_TARGET = [0-9.]+/IPHONEOS_DEPLOYMENT_TARGET = 15.5/g" ios/Runner.xcodeproj/project.pbxproj
 
       - name: Install Dependencies
         working-directory: ./mobile_app
