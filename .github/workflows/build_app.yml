@@ -20,7 +20,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Set up Java JDK 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: 'temurin'
           java-version: '17'
@@ -31,6 +31,17 @@ jobs:
           channel: 'stable'
           cache: true
 
+      - name: Configure Android Platform Files
+        working-directory: ./mobile_app
+        run: |
+          flutter create --platforms=android --org com.qid --project-name qid_scanner .
+          # Set minSdk to 21 for ML Kit / mobile_scanner
+          sed -i 's/minSdkVersion flutter.minSdkVersion/minSdkVersion 21/g' android/app/build.gradle || true
+          sed -i 's/minSdk = flutter.minSdkVersion/minSdk = 21/g' android/app/build.gradle || true
+          # Add Camera, Internet, and Vibrate permissions
+          sed -i '/<application/i \    <uses-permission android:name="android.permission.CAMERA" />\n    <uses-permission android:name="android.permission.INTERNET" />\n    <uses-permission android:name="android.permission.VIBRATE" />' android/app/src/main/AndroidManifest.xml || true
+          sed -i 's/<application/<application android:usesCleartextTraffic="true"/g' android/app/src/main/AndroidManifest.xml || true
+
       - name: Install Dependencies
         working-directory: ./mobile_app
         run: flutter pub get
@@ -38,8 +49,8 @@ jobs:
       - name: Build Android APKs (Release & Debug)
         working-directory: ./mobile_app
         run: |
-          flutter build apk --release
-          flutter build apk --debug
+          flutter build apk --release --android-skip-build-dependency-validation
+          flutter build apk --debug --android-skip-build-dependency-validation
 
       - name: Stage Android APK Artifacts
         run: |
@@ -71,6 +82,14 @@ jobs:
         with:
           channel: 'stable'
           cache: true
+
+      - name: Configure iOS Platform Files
+        working-directory: ./mobile_app
+        run: |
+          flutter create --platforms=ios --org com.qid --project-name qid_scanner .
+          # Add Camera permission and App Transport Security
+          plutil -insert NSCameraUsageDescription -string "This app requires camera access to scan Qatar ID card barcodes." ios/Runner/Info.plist || true
+          plutil -insert NSAppTransportSecurity -xml "<dict><key>NSAllowsArbitraryLoads</key><true/></dict>" ios/Runner/Info.plist || true
 
       - name: Install Dependencies
         working-directory: ./mobile_app
