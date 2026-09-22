@@ -16,11 +16,15 @@ if (($current_user['role'] ?? '') !== 'admin') {
 
 $db = getDB();
 
-// Ensure status column exists (migration for existing installs)
-try {
-    $db->exec("ALTER TABLE `users` ADD COLUMN `status` ENUM('active','inactive') NOT NULL DEFAULT 'active' AFTER `role`");
-} catch (PDOException $e) {
-    // Column already exists - ignore
+// One-time migration: add status column if missing (for existing installs)
+$migration_marker = sys_get_temp_dir() . '/qid_users_status_migrated.flag';
+if (!file_exists($migration_marker)) {
+    try {
+        $db->exec("ALTER TABLE `users` ADD COLUMN `status` ENUM('active','inactive') NOT NULL DEFAULT 'active' AFTER `role`");
+    } catch (PDOException $e) {
+        // Column already exists - ignore
+    }
+    @file_put_contents($migration_marker, date('Y-m-d H:i:s'));
 }
 
 // Handle form actions

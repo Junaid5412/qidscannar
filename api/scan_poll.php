@@ -9,13 +9,17 @@ header('Content-Type: application/json; charset=UTF-8');
 header('Cache-Control: no-cache, no-store, must-revalidate');
 
 require_once __DIR__ . '/../includes/db.php';
-require_once __DIR__ . '/../includes/functions.php';
 
 if (session_status() === PHP_SESSION_NONE && !headers_sent()) {
     session_start();
 }
 
 $user_id = (int)($_SESSION['qid_user_id'] ?? 0);
+
+// Release session lock immediately so other pages load fast
+if (session_status() === PHP_SESSION_ACTIVE) {
+    session_write_close();
+}
 
 if ($user_id <= 0 && !empty($_GET['token'])) {
     $db = getDB();
@@ -31,7 +35,6 @@ if ($user_id <= 0) {
 }
 
 $db = getDB();
-ensure_scanner_tables();
 
 $stmt = $db->prepare("
     SELECT id, scan_data 

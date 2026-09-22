@@ -302,7 +302,7 @@
                     }
                 })
                 .catch(err => {});
-        }, 1500);
+        }, 3000);
     }
 
     // Start on DOM ready

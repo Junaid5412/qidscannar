@@ -353,10 +353,19 @@ function trigger_auto_backup_if_enabled() {
 
 /**
  * Ensure scanner tables exist for real-time mobile sync
+ * Uses a file-based flag to avoid running DDL on every page load
  */
 function ensure_scanner_tables() {
     static $tables_checked = false;
     if ($tables_checked) return;
+
+    // Use a marker file to skip DDL after first successful creation
+    $marker = sys_get_temp_dir() . '/qid_scanner_tables_ok.flag';
+    if (file_exists($marker)) {
+        $tables_checked = true;
+        return;
+    }
+
     $db = getDB();
     try {
         $db->exec("
@@ -383,12 +392,11 @@ function ensure_scanner_tables() {
               INDEX `idx_user_scan` (`user_id`, `is_consumed`, `id`)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
         ");
+        // Mark as done so we never run DDL again
+        @file_put_contents($marker, date('Y-m-d H:i:s'));
         $tables_checked = true;
     } catch (Exception $e) {
         error_log("Error creating scanner tables: " . $e->getMessage());
     }
 }
-
-// Auto-check scanner tables
-ensure_scanner_tables();
 

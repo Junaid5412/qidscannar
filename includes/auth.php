@@ -22,10 +22,18 @@ require_once __DIR__ . '/functions.php';
 
 /**
  * Ensure users table exists and default admin user is seeded
+ * Uses a file-based flag to avoid running DDL on every page load
  */
 function ensure_users_table() {
     static $ensured = false;
     if ($ensured) return;
+
+    // Use a marker file to skip DDL after first successful creation
+    $marker = sys_get_temp_dir() . '/qid_users_table_ok.flag';
+    if (file_exists($marker)) {
+        $ensured = true;
+        return;
+    }
 
     $db = getDB();
     try {
@@ -37,6 +45,7 @@ function ensure_users_table() {
                 `full_name` VARCHAR(100) NOT NULL,
                 `email` VARCHAR(100) DEFAULT NULL,
                 `role` VARCHAR(20) NOT NULL DEFAULT 'admin',
+                `status` ENUM('active','inactive') NOT NULL DEFAULT 'active',
                 `last_login` DATETIME DEFAULT NULL,
                 `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 PRIMARY KEY (`id`)
@@ -56,6 +65,8 @@ function ensure_users_table() {
             $ins = $db->prepare("INSERT INTO `users` (`username`, `password_hash`, `full_name`, `role`) VALUES (?, ?, ?, 'admin')");
             $ins->execute([$default_user, $hash, $default_name]);
         }
+        // Mark as done so we never run DDL again
+        @file_put_contents($marker, date('Y-m-d H:i:s'));
         $ensured = true;
     } catch (PDOException $e) {
         error_log("Database initialization error in auth.php: " . $e->getMessage());
