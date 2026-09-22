@@ -31,6 +31,34 @@ jobs:
           channel: 'stable'
           cache: true
 
+      - name: Configure Android Platform
+        working-directory: ./mobile_app
+        run: |
+          # Backup our custom Android config files
+          cp android/app/build.gradle /tmp/build.gradle.bak
+          cp android/settings.gradle /tmp/settings.gradle.bak
+          cp android/app/src/main/AndroidManifest.xml /tmp/AndroidManifest.xml.bak
+          cp android/app/src/main/kotlin/com/qid/scanner/MainActivity.kt /tmp/MainActivity.kt.bak
+          cp android/app/src/main/res/values/styles.xml /tmp/styles.xml.bak
+          cp android/app/src/main/res/drawable/launch_background.xml /tmp/launch_background.xml.bak
+          cp android/gradle/wrapper/gradle-wrapper.properties /tmp/gradle-wrapper.properties.bak
+
+          # Run flutter create to generate all missing resources (mipmap icons, etc.)
+          flutter create --platforms=android --org com.qid --project-name qid_scanner .
+
+          # Restore our custom files over the generated ones
+          cp /tmp/build.gradle.bak android/app/build.gradle
+          cp /tmp/settings.gradle.bak android/settings.gradle
+          cp /tmp/AndroidManifest.xml.bak android/app/src/main/AndroidManifest.xml
+          cp /tmp/MainActivity.kt.bak android/app/src/main/kotlin/com/qid/scanner/MainActivity.kt
+          cp /tmp/styles.xml.bak android/app/src/main/res/values/styles.xml
+          cp /tmp/launch_background.xml.bak android/app/src/main/res/drawable/launch_background.xml
+          cp /tmp/gradle-wrapper.properties.bak android/gradle/wrapper/gradle-wrapper.properties
+
+          # Verify mipmap icons exist
+          echo "=== Checking mipmap resources ==="
+          find android/app/src/main/res/mipmap-* -name "*.png" | head -20 || echo "WARNING: No mipmap icons found"
+
       - name: Install Dependencies
         working-directory: ./mobile_app
         run: flutter pub get
