@@ -35,8 +35,12 @@ class _ScannerScreenState extends State<ScannerScreen> {
   String _staffUsername = '';
 
   Map<String, dynamic>? _lastResult;
+  Map<String, String>? _lastExtractedData;
   String? _lastQid;
   String? _syncTime;
+
+  Map<String, int> _qidDetectionCounts = {};
+  DateTime _lastDetectionReset = DateTime.now();
 
   static final RegExp _qidRegex = RegExp(r'\b(\d{11})\b');
 
@@ -161,11 +165,12 @@ class _ScannerScreenState extends State<ScannerScreen> {
         }
       }
 
-      // 2. OCR Scanning (if barcode didn't find anything)
+      // 2. OCR Scanning
       if (extractedQid.isEmpty) {
         final recognizedText = await _textRecognizer.processImage(inputImage);
         final lines = recognizedText.blocks.expand((b) => b.lines).map((l) => l.text).toList();
         final commonNationalities = ['INDIA', 'PAKISTAN', 'BANGLADESH', 'NEPAL', 'PHILIPPINES', 'SRI LANKA', 'EGYPT', 'SUDAN', 'SYRIA', 'JORDAN', 'LEBANON', 'KENYA', 'UGANDA', 'MOROCCO', 'TUNISIA', 'ALGERIA', 'YEMEN', 'INDONESIA', 'MALAYSIA', 'TURKEY', 'NIGERIA', 'GHANA'];
+        final exclusions = ['STATE OF QATAR', 'RESIDENCY PERMIT', 'RESIDENCE PERMIT', 'ID.NO', 'D.O.B', 'EXPIRY', 'NATIONALITY', 'OCCUPATION', 'PASSPORT', 'SERIAL NO', 'EMPLOYER', 'DIRECTOR', 'GENERAL', 'SIGNATURE', 'BLOOD', 'PAYMENT', 'COLLECTION', 'REMINDER', 'MINISTRY', 'INTERIOR', 'DATE'];
         
         for (int i = 0; i < lines.length; i++) {
           final line = lines[i].trim();
@@ -210,32 +215,43 @@ class _ScannerScreenState extends State<ScannerScreen> {
              }
           }
 
-          if (RegExp(r'^[A-Z\s\-]+$').hasMatch(lineUpper) && lineUpper.length > 5) {
-             if (!lineUpper.contains('STATE OF QATAR') && 
-                 !lineUpper.contains('ID NUMBER') && 
-                 !lineUpper.contains('DOB') &&
-                 !lineUpper.contains('DATE') &&
-                 !lineUpper.contains('BLOOD') &&
-                 !lineUpper.contains('MINISTRY')) {
-                 
-                 if (extractedName.isEmpty) {
-                     extractedName = line;
-                 } else if (extractedJob.isEmpty && lineUpper != extractedNationality) {
-                     extractedJob = line;
+          if (lineUpper.startsWith('NAME:') || lineUpper.startsWith('NAME ')) {
+             extractedName = lineUpper.replaceFirst(RegExp(r'^NAME\s*[:\-]*\s*'), '').trim();
+          } else if (extractedName.isEmpty && RegExp(r'^[A-Z\s\-]+$').hasMatch(lineUpper) && lineUpper.length > 8) {
+             bool isExcluded = false;
+             for (final ex in exclusions) {
+                 if (lineUpper.contains(ex)) {
+                     isExcluded = true;
+                     break;
                  }
+             }
+             if (!isExcluded && lineUpper != extractedNationality) {
+                 extractedName = line;
              }
           }
         }
       }
 
-      // 3. Process matched QID
+      // 3. Process matched QID with Debounce Buffer
       if (extractedQid.isNotEmpty && extractedQid.length == 11) {
-        await _handleScan(extractedQid, scanType, {
-          'name': extractedName,
-          'nationality': extractedNationality,
-          'job': extractedJob,
-          'expiry': extractedExpiry,
-        });
+          // Reset buffer if it's been more than 2 seconds since last detection
+          if (DateTime.now().difference(_lastDetectionReset).inSeconds > 2) {
+              _qidDetectionCounts.clear();
+          }
+          _lastDetectionReset = DateTime.now();
+
+          _qidDetectionCounts[extractedQid] = (_qidDetectionCounts[extractedQid] ?? 0) + 1;
+          
+          // Require at least 2 consecutive frames of the same QID to prevent fast/incorrect scans
+          if (_qidDetectionCounts[extractedQid]! >= 2) {
+              _qidDetectionCounts.clear();
+              await _handleScan(extractedQid, scanType, {
+                'name': extractedName,
+                'nationality': extractedNationality,
+                'job': extractedJob,
+                'expiry': extractedExpiry,
+              });
+          }
       }
 
     } catch (e) {
@@ -262,6 +278,7 @@ class _ScannerScreenState extends State<ScannerScreen> {
       setState(() {
         _isSyncing = false;
         _lastResult = res;
+        _lastExtractedData = cardData;
         _lastQid = qid;
         _syncTime = DateFormat('hh:mm a').format(DateTime.now());
       });
@@ -437,9 +454,18 @@ class _ScannerScreenState extends State<ScannerScreen> {
 
   Widget _buildResultCard() {
     final recordFound = _lastResult!['record_found'] == true;
-    final personName = _lastResult!['person_name'] ?? 'Unregistered QID';
+    
+    // If the server doesn't know the name, fall back to what we extracted
+    String extractedName = _lastExtractedData?['name'] ?? '';
+    final personName = (recordFound && _lastResult!['person_name'] != null)
+        ? _lastResult!['person_name']
+        : (extractedName.isNotEmpty ? extractedName : 'Unregistered QID');
+        
     final balanceDue = _lastResult!['balance_due'] ?? '0.00 QR';
     final expiryStatus = _lastResult!['expiry_status'] ?? 'Valid';
+
+    String nat = _lastExtractedData?['nationality'] ?? '';
+    String exp = _lastExtractedData?['expiry'] ?? '';
 
     return Container(
       margin: const EdgeInsets.all(16),
@@ -506,6 +532,18 @@ class _ScannerScreenState extends State<ScannerScreen> {
               fontSize: 13,
             ),
           ),
+          
+          if (nat.isNotEmpty || exp.isNotEmpty) ...[
+             const SizedBox(height: 8),
+             Text(
+               [if (nat.isNotEmpty) 'Nationality: $nat', if (exp.isNotEmpty) 'Expiry: $exp'].join('  |  '),
+               style: const TextStyle(
+                 color: Color(0xFFCBD5E1),
+                 fontSize: 12,
+               ),
+             ),
+          ],
+          
           const SizedBox(height: 14),
           if (recordFound)
             Container(
