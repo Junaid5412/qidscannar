@@ -1,10 +1,13 @@
 import 'dart:async';
+import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
-import 'package:mobile_scanner/mobile_scanner.dart';
+import 'package:camera/camera.dart';
 import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
-import 'package:image_picker/image_picker.dart';
+import 'package:google_mlkit_barcode_scanning/google_mlkit_barcode_scanning.dart';
+
 import '../services/api_service.dart';
 import '../services/storage_service.dart';
 import '../widgets/manual_entry_dialog.dart';
@@ -19,24 +22,18 @@ class ScannerScreen extends StatefulWidget {
 }
 
 class _ScannerScreenState extends State<ScannerScreen> {
-  final MobileScannerController _controller = MobileScannerController(
-    detectionSpeed: DetectionSpeed.noDuplicates,
-    formats: [
-      BarcodeFormat.code128,
-      BarcodeFormat.code39,
-      BarcodeFormat.pdf417,
-      BarcodeFormat.qrCode,
-      BarcodeFormat.all,
-    ],
-  );
-
+  CameraController? _cameraController;
+  final TextRecognizer _textRecognizer = TextRecognizer(script: TextRecognitionScript.latin);
+  final BarcodeScanner _barcodeScanner = BarcodeScanner(formats: [BarcodeFormat.all]);
+  
   bool _isTorchOn = false;
   bool _isPaused = false;
   bool _isSyncing = false;
+  bool _isBusy = false;
+  
   String _staffName = '';
   String _staffUsername = '';
 
-  // Bottom Result Card State
   Map<String, dynamic>? _lastResult;
   String? _lastQid;
   String? _syncTime;
@@ -47,179 +44,206 @@ class _ScannerScreenState extends State<ScannerScreen> {
   void initState() {
     super.initState();
     _loadStaffInfo();
+    _initializeCamera();
   }
 
   Future<void> _loadStaffInfo() async {
     final name = await StorageService.getFullName();
     final user = await StorageService.getUsername();
-    setState(() {
-      _staffName = name;
-      _staffUsername = user;
-    });
+    if (mounted) {
+      setState(() {
+        _staffName = name;
+        _staffUsername = user;
+      });
+    }
+  }
+
+  Future<void> _initializeCamera() async {
+    try {
+      final cameras = await availableCameras();
+      final backCamera = cameras.firstWhere(
+        (c) => c.lensDirection == CameraLensDirection.back,
+        orElse: () => cameras.first,
+      );
+
+      _cameraController = CameraController(
+        backCamera,
+        ResolutionPreset.high,
+        enableAudio: false,
+        imageFormatGroup: Platform.isAndroid ? ImageFormatGroup.nv21 : ImageFormatGroup.bgra8888,
+      );
+
+      await _cameraController!.initialize();
+      if (!mounted) return;
+
+      setState(() {});
+
+      _cameraController!.startImageStream(_processCameraImage);
+    } catch (e) {
+      if (kDebugMode) print('Error initializing camera: $e');
+    }
   }
 
   @override
   void dispose() {
-    _controller.dispose();
+    _cameraController?.stopImageStream();
+    _cameraController?.dispose();
+    _textRecognizer.close();
+    _barcodeScanner.close();
     super.dispose();
   }
 
-  void _onDetect(BarcodeCapture capture) {
-    if (_isPaused || _isSyncing) return;
+  InputImage? _inputImageFromCameraImage(CameraImage image) {
+    if (_cameraController == null) return null;
 
-    for (final barcode in capture.barcodes) {
-      final rawValue = barcode.rawValue;
-      if (rawValue == null || rawValue.trim().isEmpty) continue;
+    final camera = _cameraController!.description;
+    final sensorOrientation = camera.sensorOrientation;
+    
+    final InputImageRotation? rotation = InputImageRotationValue.fromRawValue(sensorOrientation);
+    if (rotation == null) return null;
 
-      final qid = _extractQid(rawValue.trim());
-      // Strictly ensure the QID is valid before triggering the API
-      if (qid.isNotEmpty && qid.length == 11) {
-        _handleScan(qid, 'barcode');
-        break; // Stop processing other barcodes in this frame once a valid QID is found
-      }
+    final format = InputImageFormatValue.fromRawValue(image.format.raw);
+    if (format == null ||
+        (Platform.isAndroid && format != InputImageFormat.nv21) ||
+        (Platform.isIOS && format != InputImageFormat.bgra8888)) {
+      return null;
     }
+
+    if (image.planes.isEmpty) return null;
+
+    final WriteBuffer allBytes = WriteBuffer();
+    for (final Plane plane in image.planes) {
+      allBytes.putUint8List(plane.bytes);
+    }
+    final bytes = allBytes.done().buffer.asUint8List();
+
+    final Size imageSize = Size(image.width.toDouble(), image.height.toDouble());
+    
+    final inputImageData = InputImageMetadata(
+      size: imageSize,
+      rotation: rotation,
+      format: format,
+      bytesPerRow: image.planes[0].bytesPerRow,
+    );
+
+    return InputImage.fromBytes(bytes: bytes, metadata: inputImageData);
   }
 
-  String _extractQid(String raw) {
-    // Try to find exactly 11 digits bounded by non-word characters
-    final match = _qidRegex.firstMatch(raw);
-    if (match != null) {
-      return match.group(1)!;
-    }
-    
-    // Fallback: Strip all non-numeric characters from the scanned data
-    final digits = raw.replaceAll(RegExp(r'[^0-9]'), '');
-    
-    // STRICT VALIDATION: Qatar ID must be EXACTLY 11 digits.
-    // If it's less than 11, it's a partial scan (camera hasn't focused fully).
-    // If it's more than 11, it's invalid barcode data.
-    if (digits.length == 11) {
-      return digits;
-    }
-    
-    // Returning empty forces the scanner to ignore this frame and keep scanning
-    // until the camera properly focuses and reads the full 11 digits.
-    return '';
-  }
+  Future<void> _processCameraImage(CameraImage image) async {
+    if (_isBusy || _isPaused || _isSyncing) return;
+    _isBusy = true;
 
-  Future<void> _scanOcr() async {
     try {
-      final picker = ImagePicker();
-      final XFile? image = await picker.pickImage(
-        source: ImageSource.camera, 
-        imageQuality: 100,
-        preferredCameraDevice: CameraDevice.rear,
-      );
-      
-      if (image == null) return;
-      
-      setState(() {
-        _isPaused = true;
-        _isSyncing = true;
-      });
+      final inputImage = _inputImageFromCameraImage(image);
+      if (inputImage == null) {
+        _isBusy = false;
+        return;
+      }
 
-      final inputImage = InputImage.fromFilePath(image.path);
-      final textRecognizer = TextRecognizer(script: TextRecognitionScript.latin);
-      final RecognizedText recognizedText = await textRecognizer.processImage(inputImage);
-      
       String extractedQid = '';
       String extractedName = '';
       String extractedNationality = '';
       String extractedJob = '';
       String extractedExpiry = '';
+      String scanType = '';
 
-      // MULTI-MATCH HEURISTICS FOR QATAR ID & ALL DATA FIELDS
-      final lines = recognizedText.blocks.expand((b) => b.lines).map((l) => l.text).toList();
-      final commonNationalities = ['INDIA', 'PAKISTAN', 'BANGLADESH', 'NEPAL', 'PHILIPPINES', 'SRI LANKA', 'EGYPT', 'SUDAN', 'SYRIA', 'JORDAN', 'LEBANON', 'KENYA', 'UGANDA', 'MOROCCO', 'TUNISIA', 'ALGERIA', 'YEMEN', 'INDONESIA', 'MALAYSIA', 'TURKEY', 'NIGERIA', 'GHANA'];
-      
-      for (int i = 0; i < lines.length; i++) {
-        final line = lines[i].trim();
-        final lineUpper = line.toUpperCase();
-        
-        // 1. Check for QID or Serial Number ending in QID
-        if (extractedQid.isEmpty) {
-           final qidMatch = RegExp(r'(?<!\d)(\d{11})(?!\d)').firstMatch(line);
-           if (qidMatch != null) {
-             extractedQid = qidMatch.group(1)!;
-           } else {
-             final noSpaceLine = line.replaceAll(' ', '');
-             final serialMatch = RegExp(r'[A-Z0-9]+(\d{11})$').firstMatch(noSpaceLine);
-             if (serialMatch != null) {
-               extractedQid = serialMatch.group(1)!;
-             }
-           }
-        }
-
-        // 2. Expiry Date (YYYY-MM-DD, DD/MM/YYYY, DD-MM-YYYY)
-        if (extractedExpiry.isEmpty) {
-            final dateMatches = RegExp(r'\b(\d{2}[-/]\d{2}[-/]\d{4}|\d{4}[-/]\d{2}[-/]\d{2})\b').allMatches(line);
-            for (final m in dateMatches) {
-               final d = m.group(1)!;
-               // Expiry usually >= 2023. DOB usually < 2010.
-               if (d.contains('202') || d.contains('203')) {
-                  if (RegExp(r'^\d{2}[-/]\d{2}[-/]\d{4}$').hasMatch(d)) {
-                     final parts = d.split(RegExp(r'[-/]'));
-                     extractedExpiry = '${parts[2]}-${parts[1]}-${parts[0]}'; // Convert to YYYY-MM-DD
-                  } else if (RegExp(r'^\d{4}[-/]\d{2}[-/]\d{2}$').hasMatch(d)) {
-                     extractedExpiry = d.replaceAll('/', '-');
-                  }
-               }
-            }
-        }
-
-        // 3. Nationality (match against known common countries)
-        if (extractedNationality.isEmpty) {
-           for (final nat in commonNationalities) {
-              if (lineUpper.contains(nat)) {
-                 extractedNationality = nat;
-                 break;
-              }
-           }
-        }
-
-        // 4. Name and Job heuristics (All caps English words)
-        if (RegExp(r'^[A-Z\s\-]+$').hasMatch(lineUpper) && lineUpper.length > 5) {
-           if (!lineUpper.contains('STATE OF QATAR') && 
-               !lineUpper.contains('ID NUMBER') && 
-               !lineUpper.contains('DOB') &&
-               !lineUpper.contains('DATE') &&
-               !lineUpper.contains('BLOOD') &&
-               !lineUpper.contains('MINISTRY')) {
-               
-               if (extractedName.isEmpty) {
-                   extractedName = line;
-               } else if (extractedJob.isEmpty && lineUpper != extractedNationality) {
-                   extractedJob = line;
-               }
-           }
+      // 1. Barcode Scanning (Fastest)
+      final barcodes = await _barcodeScanner.processImage(inputImage);
+      for (final barcode in barcodes) {
+        final raw = barcode.rawValue;
+        if (raw != null) {
+          final digits = raw.replaceAll(RegExp(r'[^0-9]'), '');
+          if (digits.length == 11) {
+            extractedQid = digits;
+            scanType = 'barcode';
+            break;
+          }
         }
       }
 
-      await textRecognizer.close();
+      // 2. OCR Scanning (if barcode didn't find anything)
+      if (extractedQid.isEmpty) {
+        final recognizedText = await _textRecognizer.processImage(inputImage);
+        final lines = recognizedText.blocks.expand((b) => b.lines).map((l) => l.text).toList();
+        final commonNationalities = ['INDIA', 'PAKISTAN', 'BANGLADESH', 'NEPAL', 'PHILIPPINES', 'SRI LANKA', 'EGYPT', 'SUDAN', 'SYRIA', 'JORDAN', 'LEBANON', 'KENYA', 'UGANDA', 'MOROCCO', 'TUNISIA', 'ALGERIA', 'YEMEN', 'INDONESIA', 'MALAYSIA', 'TURKEY', 'NIGERIA', 'GHANA'];
+        
+        for (int i = 0; i < lines.length; i++) {
+          final line = lines[i].trim();
+          final lineUpper = line.toUpperCase();
+          
+          if (extractedQid.isEmpty) {
+             final qidMatch = _qidRegex.firstMatch(line);
+             if (qidMatch != null) {
+               extractedQid = qidMatch.group(1)!;
+               scanType = 'ocr';
+             } else {
+               final noSpaceLine = line.replaceAll(' ', '');
+               final serialMatch = RegExp(r'[A-Z0-9]+(\d{11})$').firstMatch(noSpaceLine);
+               if (serialMatch != null) {
+                 extractedQid = serialMatch.group(1)!;
+                 scanType = 'ocr';
+               }
+             }
+          }
 
-      if (extractedQid.isNotEmpty) {
-        await _handleScan(extractedQid, 'ocr', {
+          if (extractedExpiry.isEmpty) {
+              final dateMatches = RegExp(r'\b(\d{2}[-/]\d{2}[-/]\d{4}|\d{4}[-/]\d{2}[-/]\d{2})\b').allMatches(line);
+              for (final m in dateMatches) {
+                 final d = m.group(1)!;
+                 if (d.contains('202') || d.contains('203')) {
+                    if (RegExp(r'^\d{2}[-/]\d{2}[-/]\d{4}$').hasMatch(d)) {
+                       final parts = d.split(RegExp(r'[-/]'));
+                       extractedExpiry = '${parts[2]}-${parts[1]}-${parts[0]}';
+                    } else if (RegExp(r'^\d{4}[-/]\d{2}[-/]\d{2}$').hasMatch(d)) {
+                       extractedExpiry = d.replaceAll('/', '-');
+                    }
+                 }
+              }
+          }
+
+          if (extractedNationality.isEmpty) {
+             for (final nat in commonNationalities) {
+                if (lineUpper.contains(nat)) {
+                   extractedNationality = nat;
+                   break;
+                }
+             }
+          }
+
+          if (RegExp(r'^[A-Z\s\-]+$').hasMatch(lineUpper) && lineUpper.length > 5) {
+             if (!lineUpper.contains('STATE OF QATAR') && 
+                 !lineUpper.contains('ID NUMBER') && 
+                 !lineUpper.contains('DOB') &&
+                 !lineUpper.contains('DATE') &&
+                 !lineUpper.contains('BLOOD') &&
+                 !lineUpper.contains('MINISTRY')) {
+                 
+                 if (extractedName.isEmpty) {
+                     extractedName = line;
+                 } else if (extractedJob.isEmpty && lineUpper != extractedNationality) {
+                     extractedJob = line;
+                 }
+             }
+          }
+        }
+      }
+
+      // 3. Process matched QID
+      if (extractedQid.isNotEmpty && extractedQid.length == 11) {
+        await _handleScan(extractedQid, scanType, {
           'name': extractedName,
           'nationality': extractedNationality,
           'job': extractedJob,
           'expiry': extractedExpiry,
         });
-      } else {
-        setState(() => _isSyncing = false);
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Could not detect a valid 11-digit QID from the photo. Please try again.'),
-            backgroundColor: Colors.orange,
-          )
-        );
-        _resumeScanning();
       }
+
     } catch (e) {
-      setState(() => _isSyncing = false);
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('OCR Error: $e')));
-      _resumeScanning();
+      if (kDebugMode) print('Frame processing error: $e');
+    }
+
+    if (mounted) {
+      _isBusy = false;
     }
   }
 
@@ -229,113 +253,134 @@ class _ScannerScreenState extends State<ScannerScreen> {
       _isSyncing = true;
     });
 
-    // Provide haptic vibration and sound feedback
     HapticFeedback.heavyImpact();
     SystemSound.play(SystemSoundType.click);
 
     final res = await ApiService.pushScan(qidNumber: qid, scanType: scanType, cardData: cardData);
 
-    setState(() {
-      _isSyncing = false;
-      _lastQid = qid;
-      _syncTime = DateFormat('hh:mm a').format(DateTime.now());
-      _lastResult = res;
-    });
+    if (mounted) {
+      setState(() {
+        _isSyncing = false;
+        _lastResult = res;
+        _lastQid = qid;
+        _syncTime = DateFormat('hh:mm a').format(DateTime.now());
+      });
 
-    if (res['success'] != true) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(res['message'] ?? 'Sync failed.'),
-          backgroundColor: Colors.red,
-        ),
-      );
-      _resumeScanning();
+      if (res['success'] == true) {
+        HapticFeedback.vibrate();
+        SystemSound.play(SystemSoundType.click);
+      } else {
+        HapticFeedback.vibrate();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(res['message'] ?? 'Sync failed'),
+            backgroundColor: Colors.redAccent,
+          ),
+        );
+      }
     }
   }
 
   void _resumeScanning() {
     setState(() {
       _lastResult = null;
-      _lastQid = null;
       _isPaused = false;
+      _isBusy = false;
     });
   }
 
-  void _toggleTorch() async {
-    await _controller.toggleTorch();
+  void _toggleTorch() {
+    if (_cameraController == null) return;
     setState(() {
       _isTorchOn = !_isTorchOn;
+      _cameraController!.setFlashMode(_isTorchOn ? FlashMode.torch : FlashMode.off);
     });
   }
 
   void _showManualEntry() {
     showDialog(
       context: context,
-      builder: (_) => ManualEntryDialog(
-        onSubmit: (qid) => _handleScan(qid, 'manual'),
+      builder: (ctx) => ManualEntryDialog(
+        onSubmit: (qid) {
+          Navigator.pop(ctx);
+          _handleScan(qid, 'manual');
+        },
       ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
+    final screenW = MediaQuery.of(context).size.width;
     final scanWindow = Rect.fromCenter(
-      center: Offset(MediaQuery.of(context).size.width / 2, MediaQuery.of(context).size.height * 0.38),
-      width: 290,
-      height: 170,
+      center: Offset(screenW / 2, MediaQuery.of(context).size.height / 2 - 40),
+      width: screenW * 0.85,
+      height: screenW * 0.55,
     );
 
     return Scaffold(
-      backgroundColor: const Color(0xFF0F172A),
+      backgroundColor: Colors.black,
       body: Stack(
         children: [
-          // 1. Fullscreen Camera Viewfinder
-          MobileScanner(
-            controller: _controller,
-            onDetect: _onDetect,
-            scanWindow: scanWindow,
-          ),
+          // 1. Camera Preview
+          if (_cameraController != null && _cameraController!.value.isInitialized)
+            Positioned.fill(
+              child: CameraPreview(_cameraController!),
+            )
+          else
+            const Center(child: CircularProgressIndicator(color: Color(0xFF10B981))),
 
-          // 2. Custom Reticle Overlay
+          // 2. Custom Overlay
           ScannerOverlay(scanWindow: scanWindow),
 
-          // 3. Top Header Bar
-          SafeArea(
+          // 3. Top Control Bar
+          Positioned(
+            top: MediaQuery.of(context).padding.top + 10,
+            left: 16,
+            right: 16,
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-              color: const Color(0xFF0F172A).withOpacity(0.85),
+              decoration: BoxDecoration(
+                color: Colors.black.withOpacity(0.65),
+                borderRadius: BorderRadius.circular(30),
+              ),
               child: Row(
                 children: [
+                  CircleAvatar(
+                    backgroundColor: const Color(0xFF10B981),
+                    radius: 16,
+                    child: Text(
+                      _staffName.isNotEmpty ? _staffName[0].toUpperCase() : 'U',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisSize: MainAxisSize.min,
                       children: [
-                        const Text(
-                          'QID Sync Scanner',
-                          style: TextStyle(
+                        Text(
+                          _staffName,
+                          style: const TextStyle(
                             color: Colors.white,
                             fontWeight: FontWeight.bold,
-                            fontSize: 16,
+                            fontSize: 14,
                           ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
                         ),
-                        Text(
-                          '● Connected as $_staffName ($_staffUsername)',
-                          style: const TextStyle(
+                        const Text(
+                          'Ready to Scan',
+                          style: TextStyle(
                             color: Color(0xFF10B981),
                             fontSize: 11,
                           ),
                         ),
                       ],
                     ),
-                  ),
-
-                  // OCR Scan button
-                  IconButton(
-                    icon: const Icon(Icons.document_scanner_rounded, color: Colors.white),
-                    onPressed: _scanOcr,
-                    tooltip: 'Scan Card Text (OCR)',
                   ),
 
                   // Torch button
@@ -415,7 +460,6 @@ class _ScannerScreenState extends State<ScannerScreen> {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Tag row
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
@@ -445,8 +489,6 @@ class _ScannerScreenState extends State<ScannerScreen> {
             ],
           ),
           const SizedBox(height: 12),
-
-          // Person Name & QID
           Text(
             personName,
             style: const TextStyle(
@@ -465,8 +507,6 @@ class _ScannerScreenState extends State<ScannerScreen> {
             ),
           ),
           const SizedBox(height: 14),
-
-          // Financial & Status Tiles
           if (recordFound)
             Container(
               padding: const EdgeInsets.all(12),
@@ -528,8 +568,6 @@ class _ScannerScreenState extends State<ScannerScreen> {
               ),
             ),
           const SizedBox(height: 14),
-
-          // Rescan Button
           SizedBox(
             width: double.infinity,
             height: 46,
