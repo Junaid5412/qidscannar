@@ -3,7 +3,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
-
+import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
+import 'package:image_picker/image_picker.dart';
 import '../services/api_service.dart';
 import '../services/storage_service.dart';
 import '../widgets/manual_entry_dialog.dart';
@@ -101,7 +102,87 @@ class _ScannerScreenState extends State<ScannerScreen> {
     return '';
   }
 
-  Future<void> _handleScan(String qid, String scanType) async {
+  Future<void> _scanOcr() async {
+    try {
+      final picker = ImagePicker();
+      final XFile? image = await picker.pickImage(
+        source: ImageSource.camera, 
+        imageQuality: 100,
+        preferredCameraDevice: CameraDevice.rear,
+      );
+      
+      if (image == null) return;
+      
+      setState(() {
+        _isPaused = true;
+        _isSyncing = true;
+      });
+
+      final inputImage = InputImage.fromFilePath(image.path);
+      final textRecognizer = TextRecognizer(script: TextRecognitionScript.latin);
+      final RecognizedText recognizedText = await textRecognizer.processImage(inputImage);
+      
+      String extractedQid = '';
+      String extractedName = '';
+
+      // MULTI-MATCH HEURISTICS FOR QATAR ID & NAME
+      final lines = recognizedText.blocks.expand((b) => b.lines).map((l) => l.text).toList();
+      
+      for (int i = 0; i < lines.length; i++) {
+        final line = lines[i].trim();
+        
+        // 1. Check for QID or Serial Number ending in QID
+        if (extractedQid.isEmpty) {
+           // Exact 11 digits
+           final qidMatch = RegExp(r'(?<!\d)(\d{11})(?!\d)').firstMatch(line);
+           if (qidMatch != null) {
+             extractedQid = qidMatch.group(1)!;
+           } else {
+             // Serial ending in 11 digits (remove spaces to be safe)
+             final noSpaceLine = line.replaceAll(' ', '');
+             final serialMatch = RegExp(r'[A-Z0-9]+(\d{11})$').firstMatch(noSpaceLine);
+             if (serialMatch != null) {
+               extractedQid = serialMatch.group(1)!;
+             }
+           }
+        }
+
+        // 2. Name heuristic: All caps English words (usually Name is printed in English caps)
+        if (extractedName.isEmpty && RegExp(r'^[A-Z\s\-]+$').hasMatch(line) && line.length > 6) {
+           // Exclude common QID labels
+           if (!line.contains('STATE OF QATAR') && 
+               !line.contains('ID NUMBER') && 
+               !line.contains('QATAR') && 
+               !line.contains('DOB')) {
+               extractedName = line;
+           }
+        }
+      }
+
+      await textRecognizer.close();
+
+      if (extractedQid.isNotEmpty) {
+        await _handleScan(extractedQid, 'ocr', extractedName);
+      } else {
+        setState(() => _isSyncing = false);
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Could not detect a valid 11-digit QID from the photo. Please try again.'),
+            backgroundColor: Colors.orange,
+          )
+        );
+        _resumeScanning();
+      }
+    } catch (e) {
+      setState(() => _isSyncing = false);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('OCR Error: $e')));
+      _resumeScanning();
+    }
+  }
+
+  Future<void> _handleScan(String qid, String scanType, [String cardName = '']) async {
     setState(() {
       _isPaused = true;
       _isSyncing = true;
@@ -111,7 +192,7 @@ class _ScannerScreenState extends State<ScannerScreen> {
     HapticFeedback.heavyImpact();
     SystemSound.play(SystemSoundType.click);
 
-    final res = await ApiService.pushScan(qidNumber: qid, scanType: scanType);
+    final res = await ApiService.pushScan(qidNumber: qid, scanType: scanType, cardName: cardName);
 
     setState(() {
       _isSyncing = false;
@@ -207,6 +288,13 @@ class _ScannerScreenState extends State<ScannerScreen> {
                         ),
                       ],
                     ),
+                  ),
+
+                  // OCR Scan button
+                  IconButton(
+                    icon: const Icon(Icons.document_scanner_rounded, color: Colors.white),
+                    onPressed: _scanOcr,
+                    tooltip: 'Scan Card Text (OCR)',
                   ),
 
                   // Torch button

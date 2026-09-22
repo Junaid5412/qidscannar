@@ -219,9 +219,11 @@
             </div>
             `;
 
+            const cardName = data.card_extracted?.name || '';
+            const nameParam = cardName ? `&prefill_name=${encodeURIComponent(cardName)}` : '';
             footerEl.innerHTML = `
                 <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Dismiss</button>
-                <a href="record_add.php?prefill_qid=${encodeURIComponent(qid)}" class="btn btn-success btn-sm px-4 fw-bold">
+                <a href="record_add.php?prefill_qid=${encodeURIComponent(qid)}${nameParam}" class="btn btn-success btn-sm px-4 fw-bold">
                     <i class="fa-solid fa-plus me-1"></i> Register This Person Now
                 </a>
             `;

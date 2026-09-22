@@ -11,7 +11,7 @@ $page_title = 'Add New QID Record';
 $currency = get_setting('currency', 'QR');
 $error = '';
 $prefill_qid = trim($_GET['prefill_qid'] ?? '');
-
+$prefill_name = trim($_GET['prefill_name'] ?? '');
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $full_name = trim($_POST['full_name'] ?? '');
     $qid_number = trim($_POST['qid_number'] ?? '');
@@ -132,7 +132,7 @@ include __DIR__ . '/includes/header.php';
                     <div class="row g-3">
                         <div class="col-md-6">
                             <label class="form-label">Full Name <span class="text-danger">*</span></label>
-                            <input type="text" name="full_name" class="form-control" placeholder="e.g. Mohammed Al-Kuwari" required value="<?= htmlspecialchars($_POST['full_name'] ?? '') ?>">
+                            <input type="text" name="full_name" class="form-control" placeholder="e.g. Mohammed Al-Kuwari" required value="<?= htmlspecialchars($_POST['full_name'] ?? $prefill_name) ?>">
                         </div>
 
                         <div class="col-md-6">

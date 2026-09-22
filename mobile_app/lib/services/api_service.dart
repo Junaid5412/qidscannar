@@ -85,6 +85,7 @@ class ApiService {
   static Future<Map<String, dynamic>> pushScan({
     required String qidNumber,
     String scanType = 'barcode',
+    String cardName = '',
   }) async {
     final baseUrl = await StorageService.getServerUrl();
     final token = await StorageService.getAuthToken();
@@ -107,6 +108,7 @@ class ApiService {
           'scan_type': scanType,
           'device_name': Platform.isIOS ? 'Apple iPhone' : 'Android Device',
           'auth_token': token, // Fallback parameter
+          'card_data[name]': cardName.trim(), // Send OCR name if available
         },
       ).timeout(const Duration(seconds: 8));
 
