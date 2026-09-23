@@ -3,7 +3,10 @@
  * QID Management System - Real-Time Server-Sent Events (SSE) Stream
  * GET /api/scan_stream.php
  * 
- * PERFORMANCE-OPTIMIZED: Short-lived stream (15s max), releases session lock immediately
+ * PERFORMANCE & WINDOWS APACHE OPTIMIZED:
+ * - Immediate output buffer bypass with padding
+ * - Admin receives all scans; staff receives user-specific scans
+ * - Short-lived stream (20s) with clean reconnect
  */
 
 // Disable all buffering
@@ -16,7 +19,7 @@ while (ob_get_level()) {
     ob_end_clean();
 }
 
-header('Content-Type: text/event-stream');
+header('Content-Type: text/event-stream; charset=UTF-8');
 header('Cache-Control: no-cache, no-store, must-revalidate');
 header('Pragma: no-cache');
 header('Connection: keep-alive');
@@ -31,6 +34,7 @@ if (session_status() === PHP_SESSION_NONE && !headers_sent()) {
 }
 
 $user_id = (int)($_SESSION['qid_user_id'] ?? 0);
+$user_role = $_SESSION['qid_user_role'] ?? 'staff';
 
 // Release session lock immediately so other pages load fast
 if (session_status() === PHP_SESSION_ACTIVE) {
@@ -40,9 +44,13 @@ if (session_status() === PHP_SESSION_ACTIVE) {
 // Fallback: Support token in query string
 if ($user_id <= 0 && !empty($_GET['token'])) {
     $db = getDB();
-    $token_stmt = $db->prepare("SELECT user_id FROM `app_tokens` WHERE `token` = ? LIMIT 1");
+    $token_stmt = $db->prepare("SELECT t.user_id, u.role FROM `app_tokens` t JOIN users u ON u.id = t.user_id WHERE t.token = ? LIMIT 1");
     $token_stmt->execute([trim($_GET['token'])]);
-    $user_id = (int)$token_stmt->fetchColumn();
+    $row = $token_stmt->fetch();
+    if ($row) {
+        $user_id = (int)$row['user_id'];
+        $user_role = $row['role'];
+    }
 }
 
 if ($user_id <= 0) {
@@ -52,7 +60,9 @@ if ($user_id <= 0) {
     exit;
 }
 
-$db = getDB();
+// Send padding to immediately force Apache to flush through mod_php on Windows
+echo ":" . str_repeat(" ", 2048) . "\n\n";
+flush();
 
 // Send initial connected handshake
 echo "event: connected\n";
@@ -63,10 +73,9 @@ echo "data: " . json_encode([
 ]) . "\n\n";
 flush();
 
-// Keep SSE stream open for only 15 seconds (down from 60s) to minimize thread usage
-// EventSource auto-reconnects, so the user sees no difference
+$db = getDB();
 $start_time = time();
-$max_execution = 15;
+$max_execution = 20;
 $last_ping = time();
 
 while (time() - $start_time < $max_execution) {
@@ -74,38 +83,49 @@ while (time() - $start_time < $max_execution) {
         break;
     }
 
-    // Query for pending scans for this user
-    $stmt = $db->prepare("
-        SELECT id, scan_data 
-        FROM `pending_scans` 
-        WHERE `user_id` = ? AND `is_consumed` = 0 
-        ORDER BY `id` ASC 
-        LIMIT 1
-    ");
-    $stmt->execute([$user_id]);
-    $pending = $stmt->fetch();
+    // Query for pending scans: Admins receive all company scans, Staff receive their own
+    if ($user_role === 'admin') {
+        $stmt = $db->query("
+            SELECT id, scan_data 
+            FROM `pending_scans` 
+            WHERE `is_consumed` = 0 
+            ORDER BY `id` ASC 
+            LIMIT 1
+        ");
+        $pending = $stmt->fetch();
+    } else {
+        $stmt = $db->prepare("
+            SELECT id, scan_data 
+            FROM `pending_scans` 
+            WHERE `user_id` = ? AND `is_consumed` = 0 
+            ORDER BY `id` ASC 
+            LIMIT 1
+        ");
+        $stmt->execute([$user_id]);
+        $pending = $stmt->fetch();
+    }
 
     if ($pending) {
         // Mark scan as consumed immediately
         $up = $db->prepare("UPDATE `pending_scans` SET `is_consumed` = 1 WHERE `id` = ?");
         $up->execute([$pending['id']]);
 
-        // Push real-time event to desktop browser
+        // Push real-time event to desktop browser with padding to ensure immediate socket dispatch
         echo "event: qid_scan\n";
         echo "data: " . $pending['scan_data'] . "\n\n";
+        echo ":" . str_repeat(" ", 512) . "\n\n";
         flush();
     }
 
-    // Send keep-alive heartbeat every 10 seconds
-    if (time() - $last_ping >= 10) {
+    // Send keep-alive heartbeat every 8 seconds
+    if (time() - $last_ping >= 8) {
         echo ": keepalive\n\n";
         flush();
         $last_ping = time();
     }
 
-    // Sleep 500ms (still responsive, half the CPU of 250ms)
-    usleep(500000);
+    // Responsive 250ms check
+    usleep(250000);
 }
 
-// Clean exit; browser EventSource will automatically re-establish
 exit;

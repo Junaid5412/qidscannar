@@ -1,15 +1,17 @@
 /**
  * QID Management System - Real-Time Scanner Listener & Instant Modal
  * Connects desktop browser to user's private SSE stream /api/scan_stream.php
+ * with active fallback polling and cross-tab localStorage synchronization.
  */
 
 (function() {
     'use strict';
 
     let eventSource = null;
-    let fallbackPollTimer = null;
+    let pollIntervalTimer = null;
     let audioContext = null;
     let isConnected = false;
+    let lastProcessedScanKey = '';
 
     // Pleasant two-tone chime via Web Audio API (Zero external MP3 dependencies)
     function playScanChime() {
@@ -90,6 +92,43 @@
         `;
         document.body.insertAdjacentHTML('beforeend', modalHtml);
     }
+
+    // Central scan processor with duplicate filter and cross-tab broadcast
+    function handleIncomingScan(data, source) {
+        if (!data || !data.qid_number) return;
+
+        const scanKey = data.qid_number + '_' + (data.scanned_at || '') + '_' + (data.scanned_time || '');
+        if (scanKey === lastProcessedScanKey) {
+            return;
+        }
+        lastProcessedScanKey = scanKey;
+
+        // Broadcast to all other open tabs in the browser
+        try {
+            localStorage.setItem('qid_live_scan_sync', JSON.stringify({
+                data: data,
+                timestamp: Date.now()
+            }));
+        } catch (e) {}
+
+        showScanPopup(data);
+    }
+
+    // Listen for scan events broadcasted by other open tabs
+    window.addEventListener('storage', function(e) {
+        if (e.key === 'qid_live_scan_sync' && e.newValue) {
+            try {
+                const item = JSON.parse(e.newValue);
+                if (item && item.data && item.data.qid_number) {
+                    const scanKey = item.data.qid_number + '_' + (item.data.scanned_at || '') + '_' + (item.data.scanned_time || '');
+                    if (scanKey !== lastProcessedScanKey) {
+                        lastProcessedScanKey = scanKey;
+                        showScanPopup(item.data);
+                    }
+                }
+            } catch (err) {}
+        }
+    });
 
     // Render Scanned Payload into Modal
     function showScanPopup(data) {
@@ -206,6 +245,11 @@
         } else {
             // Unregistered Person Detected
             const qid = data.qid_number;
+            const cardName = data.card_extracted?.name || '';
+            const cardNat = data.card_extracted?.nationality || '';
+            const cardJob = data.card_extracted?.job || '';
+            const cardExp = data.card_extracted?.expiry || '';
+
             bodyEl.innerHTML = `
             <div class="text-center py-4">
                 <div class="p-3 bg-warning-subtle text-warning-emphasis rounded-circle d-inline-flex align-items-center justify-content-center mb-3" style="width: 68px; height: 68px;">
@@ -213,16 +257,19 @@
                 </div>
                 <h5 class="fw-bold text-dark mb-1">New Qatar ID Scanned!</h5>
                 <div class="font-monospace fs-4 fw-bold text-primary mb-2">${qid}</div>
+                ${cardName ? `<div class="fw-bold text-dark fs-5 mb-2">${cardName}</div>` : ''}
+                ${(cardNat || cardExp) ? `
+                    <div class="small text-muted mb-3">
+                        ${cardNat ? `<span>Nationality: <strong>${cardNat}</strong></span>` : ''}
+                        ${(cardNat && cardExp) ? ` &bull; ` : ''}
+                        ${cardExp ? `<span>Expiry: <strong>${cardExp}</strong></span>` : ''}
+                    </div>
+                ` : ''}
                 <p class="text-muted small mb-0" style="max-width: 420px; margin: 0 auto;">
-                    This QID is not registered in your database yet. Click below to create a new person file with this QID pre-filled.
+                    This QID is not registered in your database yet. Click below to create a new person file with this QID and extracted card info pre-filled.
                 </p>
             </div>
             `;
-
-            const cardName = data.card_extracted?.name || '';
-            const cardNat = data.card_extracted?.nationality || '';
-            const cardJob = data.card_extracted?.job || '';
-            const cardExp = data.card_extracted?.expiry || '';
 
             let params = `prefill_qid=${encodeURIComponent(qid)}`;
             if (cardName) params += `&prefill_name=${encodeURIComponent(cardName)}`;
@@ -238,9 +285,12 @@
             `;
         }
 
-        // Show Bootstrap Modal
-        const modalInstance = new bootstrap.Modal(document.getElementById('scannerLiveModal'));
-        modalInstance.show();
+        // Show Bootstrap Modal safely without duplicate backdrops
+        const modalEl = document.getElementById('scannerLiveModal');
+        if (modalEl && window.bootstrap && window.bootstrap.Modal) {
+            const modalInstance = bootstrap.Modal.getOrCreateInstance(modalEl);
+            modalInstance.show();
+        }
     }
 
     // Update Topbar Status Pill
@@ -263,8 +313,13 @@
 
     // Start Server-Sent Events stream
     function initScannerStream() {
+        if (eventSource) {
+            try { eventSource.close(); } catch (e) {}
+            eventSource = null;
+        }
+
         if (!window.EventSource) {
-            startPollingFallback();
+            setIndicatorStatus('connected');
             return;
         }
 
@@ -281,7 +336,7 @@
             eventSource.addEventListener('qid_scan', function(e) {
                 try {
                     const data = JSON.parse(e.data);
-                    showScanPopup(data);
+                    handleIncomingScan(data, 'sse');
                 } catch (err) {
                     console.error('Error parsing scan event:', err);
                 }
@@ -290,36 +345,41 @@
             eventSource.onerror = function(err) {
                 isConnected = false;
                 setIndicatorStatus('standby');
-                eventSource.close();
-                // Reconnect after 3 seconds or fallback to poll
-                setTimeout(initScannerStream, 3000);
+                try { eventSource.close(); } catch (e) {}
+                eventSource = null;
+                // Reconnect quickly in 1.2 seconds
+                setTimeout(initScannerStream, 1200);
             };
         } catch (e) {
-            startPollingFallback();
+            setIndicatorStatus('connected');
         }
     }
 
-    // Polling fallback if SSE is blocked
-    function startPollingFallback() {
-        if (fallbackPollTimer) return;
-        setIndicatorStatus('connected');
-
-        fallbackPollTimer = setInterval(function() {
+    // Active parallel polling safety-net (runs every 2 seconds to guarantee 100% catch rate)
+    function startPollingSafetyNet() {
+        if (pollIntervalTimer) return;
+        pollIntervalTimer = setInterval(function() {
             fetch('api/scan_poll.php')
                 .then(res => res.json())
                 .then(data => {
                     if (data && data.has_scan && data.payload) {
-                        showScanPopup(data.payload);
+                        setIndicatorStatus('connected');
+                        handleIncomingScan(data.payload, 'poll');
                     }
                 })
                 .catch(err => {});
-        }, 3000);
+        }, 2000);
     }
 
     // Start on DOM ready
-    if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', initScannerStream);
-    } else {
+    function init() {
         initScannerStream();
+        startPollingSafetyNet();
+    }
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', init);
+    } else {
+        init();
     }
 })();

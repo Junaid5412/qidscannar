@@ -43,7 +43,7 @@ include __DIR__ . '/includes/header.php';
 <!-- Financial Summary KPI Row -->
 <div class="row g-3 mb-4">
     <!-- Total Receivable -->
-    <div class="col-xl-3 col-sm-6">
+    <div class="col-md-4 col-sm-6">
         <div class="kpi-card kpi-primary card-hover">
             <div class="d-flex justify-content-between align-items-start">
                 <div>
@@ -59,7 +59,7 @@ include __DIR__ . '/includes/header.php';
     </div>
 
     <!-- Total Collected -->
-    <div class="col-xl-3 col-sm-6">
+    <div class="col-md-4 col-sm-6">
         <div class="kpi-card kpi-success card-hover">
             <div class="d-flex justify-content-between align-items-start">
                 <div>
@@ -80,7 +80,7 @@ include __DIR__ . '/includes/header.php';
     </div>
 
     <!-- Remaining Balance -->
-    <div class="col-xl-3 col-sm-6">
+    <div class="col-md-4 col-sm-12">
         <div class="kpi-card kpi-danger card-hover">
             <div class="d-flex justify-content-between align-items-start">
                 <div>
@@ -93,26 +93,6 @@ include __DIR__ . '/includes/header.php';
                 </div>
             </div>
         </div>
-    </div>
-
-    <!-- Net Expected Profit -->
-    <div class="col-xl-3 col-sm-6">
-        <a href="profit_report.php" class="text-decoration-none">
-            <div class="kpi-card kpi-purple card-hover">
-                <div class="d-flex justify-content-between align-items-start">
-                    <div>
-                        <div class="kpi-title">Net Expected Profit</div>
-                        <div class="kpi-value text-success"><?= format_currency($stats['total_profit']) ?></div>
-                        <div class="kpi-sub text-muted">
-                            Cost: <?= format_currency($stats['total_cost']) ?> &bull; <span class="text-primary fw-semibold">View Report &rarr;</span>
-                        </div>
-                    </div>
-                    <div class="kpi-icon bg-success-subtle text-success">
-                        <i class="fa-solid fa-chart-line"></i>
-                    </div>
-                </div>
-            </div>
-        </a>
     </div>
 </div>
 
