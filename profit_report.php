@@ -199,12 +199,12 @@ include __DIR__ . '/includes/header.php';
         </div>
     </div>
 
-    <!-- Realized Cash Profit -->
+    <!-- Net Profit -->
     <div class="col-xl-4 col-sm-12">
         <div class="kpi-card kpi-purple">
             <div class="d-flex justify-content-between align-items-start">
                 <div>
-                    <div class="kpi-title">Realized Cash Profit</div>
+                    <div class="kpi-title">Net Profit</div>
                     <div class="kpi-value text-dark"><?= format_currency($realized_profit_total) ?></div>
                     
                 </div>

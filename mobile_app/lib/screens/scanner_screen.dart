@@ -38,6 +38,13 @@ class _ScannerScreenState extends State<ScannerScreen> {
   String? _lastQid;
   String? _syncTime;
 
+  /// Kept so the last scan can be sent again without re-reading the card.
+  /// A push can reach the PC yet not reach the desktop browser, and re-scanning
+  /// a card just to retry the upload is wasted work for the person holding it.
+  String _lastScanType = 'barcode';
+  bool _isResending = false;
+  int _sendAttempts = 0;
+
   Map<String, int> _qidDetectionCounts = {};
   DateTime _lastDetectionReset = DateTime.now();
 
@@ -266,40 +273,78 @@ class _ScannerScreenState extends State<ScannerScreen> {
     setState(() {
       _isPaused = true;
       _isSyncing = true;
+      _lastQid = qid;
+      _lastScanType = scanType;
+      _lastExtractedData = cardData;
+      _sendAttempts = 0;
     });
 
     HapticFeedback.heavyImpact();
     SystemSound.play(SystemSoundType.click);
 
-    final res = await ApiService.pushScan(qidNumber: qid, scanType: scanType, cardData: cardData);
+    await _sendToServer();
+  }
 
-    if (mounted) {
-      setState(() {
-        _isSyncing = false;
-        _lastResult = res;
-        _lastExtractedData = cardData;
-        _lastQid = qid;
-        _syncTime = DateFormat('hh:mm a').format(DateTime.now());
-      });
+  /// Pushes the scan currently held on screen. Used for the first automatic
+  /// send and for every manual "Send Data" afterwards.
+  Future<void> _sendToServer({bool manual = false}) async {
+    final qid = _lastQid;
+    if (qid == null || qid.isEmpty) return;
 
-      if (res['success'] == true) {
-        HapticFeedback.vibrate();
-        SystemSound.play(SystemSoundType.click);
+    setState(() {
+      if (manual) {
+        _isResending = true;
       } else {
-        HapticFeedback.vibrate();
+        _isSyncing = true;
+      }
+    });
+
+    final res = await ApiService.pushScan(
+      qidNumber: qid,
+      scanType: _lastScanType,
+      cardData: _lastExtractedData ?? const {},
+    );
+
+    if (!mounted) return;
+
+    setState(() {
+      _isSyncing = false;
+      _isResending = false;
+      _lastResult = res;
+      _sendAttempts++;
+      _syncTime = DateFormat('hh:mm a').format(DateTime.now());
+    });
+
+    HapticFeedback.vibrate();
+
+    if (res['success'] == true) {
+      SystemSound.play(SystemSoundType.click);
+      if (manual) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(res['message'] ?? 'Sync failed'),
-            backgroundColor: Colors.redAccent,
+          const SnackBar(
+            content: Text('Sent to desktop again.'),
+            backgroundColor: Color(0xFF0D9488),
+            duration: Duration(seconds: 2),
           ),
         );
       }
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(res['message'] ?? 'Sync failed'),
+          backgroundColor: Colors.redAccent,
+          duration: const Duration(seconds: 4),
+        ),
+      );
     }
   }
 
   void _resumeScanning() {
     setState(() {
       _lastResult = null;
+      _lastQid = null;
+      _lastExtractedData = null;
+      _sendAttempts = 0;
       _isPaused = false;
       _isBusy = false;
     });
@@ -440,11 +485,14 @@ class _ScannerScreenState extends State<ScannerScreen> {
               ),
             ),
 
-          // 5. Bottom Result Card
-          if (_lastResult != null && _lastResult!['success'] == true)
+          // 5. Bottom Result Card - shown for failures too, otherwise a failed
+          //    send would leave the scanner paused with nothing to act on.
+          if (_lastResult != null)
             Align(
               alignment: Alignment.bottomCenter,
-              child: _buildResultCard(),
+              child: _lastResult!['success'] == true
+                  ? _buildResultCard()
+                  : _buildFailureCard(),
             ),
         ],
       ),
@@ -605,20 +653,169 @@ class _ScannerScreenState extends State<ScannerScreen> {
               ),
             ),
           const SizedBox(height: 14),
-          SizedBox(
-            width: double.infinity,
+          _buildActionButtons(),
+        ],
+      ),
+    );
+  }
+
+  /// Send Data + Scan Next Card.
+  ///
+  /// Send Data exists because a successful push is not proof the desktop showed
+  /// it - the browser can miss the live update - and re-scanning the card just
+  /// to retry the upload wastes the cardholder's time.
+  Widget _buildActionButtons({bool emphasiseSend = false}) {
+    final busy = _isResending || _isSyncing;
+
+    return Row(
+      children: [
+        Expanded(
+          child: SizedBox(
             height: 46,
             child: ElevatedButton.icon(
-              onPressed: _resumeScanning,
-              icon: const Icon(Icons.qr_code_scanner_rounded, size: 18),
-              label: const Text('Scan Next Card', style: TextStyle(fontWeight: FontWeight.bold)),
+              onPressed: busy ? null : () => _sendToServer(manual: true),
+              icon: busy
+                  ? const SizedBox(
+                      width: 15,
+                      height: 15,
+                      child: CircularProgressIndicator(
+                          strokeWidth: 2, color: Colors.white),
+                    )
+                  : const Icon(Icons.send_rounded, size: 17),
+              label: Text(
+                busy ? 'Sending...' : 'Send Data',
+                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13.5),
+              ),
               style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF8A1538),
+                backgroundColor: emphasiseSend
+                    ? const Color(0xFFEF4444)
+                    : const Color(0xFF0D9488),
                 foregroundColor: Colors.white,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                disabledBackgroundColor: const Color(0xFF334155),
+                shape:
+                    RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
               ),
             ),
           ),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: SizedBox(
+            height: 46,
+            child: ElevatedButton.icon(
+              onPressed: busy ? null : _resumeScanning,
+              icon: const Icon(Icons.qr_code_scanner_rounded, size: 17),
+              label: const Text('Scan Next',
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13.5)),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: emphasiseSend
+                    ? const Color(0xFF475569)
+                    : const Color(0xFF8A1538),
+                foregroundColor: Colors.white,
+                disabledBackgroundColor: const Color(0xFF334155),
+                shape:
+                    RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// Shown when the push did not get through. Keeps the scanned QID and any
+  /// extracted fields on screen so Send Data can retry the very same data.
+  Widget _buildFailureCard() {
+    final message = _lastResult?['message']?.toString() ??
+        'The scan did not reach the desktop.';
+    final extractedName = _lastExtractedData?['name'] ?? '';
+
+    return Container(
+      margin: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: const Color(0xFF1E293B),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFEF4444)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.4),
+            blurRadius: 16,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFEF4444).withOpacity(0.15),
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: const Color(0xFFEF4444)),
+                ),
+                child: const Text(
+                  'Not sent to desktop',
+                  style: TextStyle(
+                    color: Color(0xFFEF4444),
+                    fontSize: 11,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+              if (_sendAttempts > 1)
+                Text(
+                  '$_sendAttempts attempts',
+                  style: const TextStyle(color: Color(0xFF64748B), fontSize: 11),
+                ),
+            ],
+          ),
+          const SizedBox(height: 12),
+
+          if (extractedName.isNotEmpty) ...[
+            Text(
+              extractedName,
+              style: const TextStyle(
+                  color: Colors.white, fontSize: 17, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 2),
+          ],
+          Text(
+            'QID: ${_lastQid ?? '-'}',
+            style: const TextStyle(
+              color: Color(0xFF94A3B8),
+              fontFamily: 'monospace',
+              fontSize: 13,
+            ),
+          ),
+          const SizedBox(height: 10),
+
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: const Color(0xFF0F172A),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Text(
+              message,
+              style: const TextStyle(
+                  color: Color(0xFFFCA5A5), fontSize: 12, height: 1.35),
+            ),
+          ),
+          const SizedBox(height: 8),
+          const Text(
+            'The scan is still held here - tap Send Data to try again without re-scanning the card.',
+            style: TextStyle(color: Color(0xFF64748B), fontSize: 11, height: 1.3),
+          ),
+
+          const SizedBox(height: 14),
+          _buildActionButtons(emphasiseSend: true),
         ],
       ),
     );
