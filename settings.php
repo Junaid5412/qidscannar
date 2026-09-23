@@ -96,7 +96,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         update_setting('app_name', trim($_POST['app_name'] ?? 'QID Management System'));
         update_setting('currency', trim($_POST['currency'] ?? 'QR'));
         update_setting('expiry_alert_days', (int)($_POST['expiry_alert_days'] ?? 30));
-        update_setting('due_alert_days', (int)($_POST['due_alert_days'] ?? 7));
         update_setting('company_name', trim($_POST['company_name'] ?? ''));
         update_setting('company_phone', trim($_POST['company_phone'] ?? ''));
         $admin_del_pass = trim($_POST['admin_delete_password'] ?? '');
@@ -312,28 +311,19 @@ include __DIR__ . '/includes/header.php';
                             <input type="text" name="company_phone" class="form-control" value="<?= htmlspecialchars(get_setting('company_phone', '+974 5500 0000')) ?>">
                         </div>
 
-                        <div class="col-md-4">
+                        <div class="col-md-6">
                             <label class="form-label">System Currency</label>
                             <input type="text" name="currency" class="form-control fw-bold" value="<?= htmlspecialchars(get_setting('currency', 'QR')) ?>">
                             <div class="form-text">e.g. <code>QR</code> or <code>QAR</code></div>
                         </div>
 
-                        <div class="col-md-4">
+                        <div class="col-md-6">
                             <label class="form-label">QID Expiry Alert Days</label>
                             <div class="input-group">
                                 <input type="number" name="expiry_alert_days" class="form-control" min="1" max="180" value="<?= htmlspecialchars(get_setting('expiry_alert_days', 30)) ?>">
                                 <span class="input-group-text bg-light">Days</span>
                             </div>
                             <div class="form-text">Alerts on Dashboard when QID expires in &le; this days.</div>
-                        </div>
-
-                        <div class="col-md-4">
-                            <label class="form-label">Payment Due Date Alert Days</label>
-                            <div class="input-group">
-                                <input type="number" name="due_alert_days" class="form-control" min="1" max="90" value="<?= htmlspecialchars(get_setting('due_alert_days', 7)) ?>">
-                                <span class="input-group-text bg-light">Days</span>
-                            </div>
-                            <div class="form-text">Alerts when pending collection due date is within this days.</div>
                         </div>
 
                         <div class="col-md-12">

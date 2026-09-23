@@ -60,7 +60,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 ':job'     => $job_title,
                 ':nat'     => $nationality,
                 ':exp'     => $expiry_date,
-                ''     => $
                 ':charge'  => $charge_amount,
                 ':cost'    => $actual_cost,
                 ':status'  => $status,
@@ -173,10 +172,10 @@ include __DIR__ . '/includes/header.php';
                 </div>
             </div>
 
-            <!-- 2. Financial Terms & Due Date -->
+            <!-- 2. Financial Terms -->
             <div class="card shadow-sm mb-4">
                 <div class="card-header-clean">
-                    <h5><i class="fa-solid fa-coins text-success"></i> Financial Pricing & Payment Due Date</h5>
+                    <h5><i class="fa-solid fa-coins text-success"></i> Financial Pricing & Terms</h5>
                 </div>
                 <div class="card-body p-4">
                     <div class="row g-3 align-items-center">
@@ -208,13 +207,7 @@ include __DIR__ . '/includes/header.php';
                             </div>
                         </div>
 
-                        <div class="col-md-6">
-                            <label class="form-label">Payment Due Date</label>
-                            <input type="date" name="" class="form-control" value="<?= htmlspecialchars($_POST[''] ?? date('Y-m-d', strtotime('+7 days'))) ?>">
-                            <div class="form-text">Due date reminder will trigger on Dashboard for collection.</div>
-                        </div>
-
-                        <div class="col-md-6">
+                        <div class="col-md-12">
                             <label class="form-label">Record Status</label>
                             <select name="status" class="form-select">
                                 <option value="Active" selected>Active</option>

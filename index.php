@@ -15,7 +15,6 @@ $recent_payments = get_recent_payments(6);
 
 $currency = get_setting('currency', 'QR');
 $expiry_alert_days = get_setting('expiry_alert_days', 30);
-$due_alert_days = get_setting('due_alert_days', 7);
 
 include __DIR__ . '/includes/header.php';
 ?>
@@ -153,11 +152,11 @@ include __DIR__ . '/includes/header.php';
         <div class="card p-3 d-flex flex-row align-items-center justify-content-between border-0 shadow-sm">
             <div class="d-flex align-items-center gap-3">
                 <div class="p-3 bg-primary-subtle text-primary rounded-circle">
-                    <i class="fa-solid fa-calendar-check fs-4"></i>
+                    <i class="fa-solid fa-coins fs-4"></i>
                 </div>
                 <div>
-                    <h5 class="fw-bold mb-0 text-primary"><?= $stats['due_payments_count'] ?></h5>
-                    <div class="small text-muted">Payment Collections Due (&le; <?= $due_alert_days ?>d)</div>
+                    <h5 class="fw-bold mb-0 text-primary"><?= $stats['unpaid_count'] ?></h5>
+                    <div class="small text-muted">Records with Pending Balance</div>
                 </div>
             </div>
             <a href="records.php?filter_payment=unpaid" class="btn btn-outline-primary btn-sm">Collect</a>
@@ -227,13 +226,13 @@ include __DIR__ . '/includes/header.php';
         </div>
     </div>
 
-    <!-- RIGHT PANEL: Payment Collection Due Reminders -->
+    <!-- RIGHT PANEL: Pending Balance Collections -->
     <div class="col-lg-6">
         <div class="card h-100 shadow-sm">
             <div class="card-header-clean">
                 <h5>
                     <i class="fa-solid fa-hand-holding-dollar text-danger"></i>
-                    <span>Payment Collection Reminders</span>
+                    <span>Pending Balance Collections</span>
                 </h5>
                 <a href="records.php?filter_payment=unpaid" class="btn btn-sm btn-link text-decoration-none">View All</a>
             </div>
@@ -241,7 +240,7 @@ include __DIR__ . '/includes/header.php';
                 <?php if (empty($payment_reminders)): ?>
                     <div class="text-center py-5 text-muted">
                         <i class="fa-solid fa-circle-check fa-3x text-success mb-2"></i>
-                        <p class="mb-0">No upcoming payment collections due in the next <?= $due_alert_days ?> days!</p>
+                        <p class="mb-0">All client balances are fully collected!</p>
                     </div>
                 <?php else: ?>
                     <div class="table-responsive">
@@ -250,7 +249,7 @@ include __DIR__ . '/includes/header.php';
                                 <tr>
                                     <th>Client / Employee</th>
                                     <th>Balance Due</th>
-                                    <th>Due Date</th>
+                                    <th>Status</th>
                                     <th class="text-end">Action</th>
                                 </tr>
                             </thead>
@@ -270,8 +269,7 @@ include __DIR__ . '/includes/header.php';
                                             <div class="small text-muted">of <?= format_currency($p_item['charge_amount']) ?></div>
                                         </td>
                                         <td>
-                                            <div class="fw-semibold"><?= format_date($p_item['payment_due_date']) ?></div>
-                                            <?= $p_item['due_badge'] ?>
+                                            <?= $p_item['payment_badge'] ?>
                                         </td>
                                         <td class="text-end">
                                             <a href="record_detail.php?id=<?= $p_item['id'] ?>#addPaymentSection" class="btn btn-sm btn-success" title="Record Installment">

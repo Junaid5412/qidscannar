@@ -433,10 +433,6 @@ $auto_print = isset($_GET['print']) && $_GET['print'] == '1';
                         <span class="info-label">QID Expiry Date:</span>
                         <span class="info-value text-dark"><?= format_date($record['expiry_date']) ?></span>
                     </div>
-                    <div class="info-row">
-                        <span class="info-label">Collection Due Date:</span>
-                        <span class="info-value text-danger"><?= format_date($record['payment_due_date']) ?></span>
-                    </div>
                 </div>
             </div>
         </div>

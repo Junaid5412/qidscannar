@@ -174,7 +174,6 @@ include __DIR__ . '/includes/header.php';
                             <th>Cost vs Charge</th>
                             <th>Our Profit</th>
                             <th>Paid & Balance</th>
-                            <th>Payment Due Date</th>
                             <th class="text-end">Actions</th>
                         </tr>
                     </thead>

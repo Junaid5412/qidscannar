@@ -172,7 +172,7 @@ include __DIR__ . '/includes/header.php';
                 </div>
             </div>
 
-            <!-- Financial Terms & Due Date -->
+            <!-- Financial Terms -->
             <div class="card shadow-sm mb-4">
                 <div class="card-header-clean">
                     <h5><i class="fa-solid fa-coins text-success"></i> Financial Pricing & Collection Terms</h5>
@@ -205,13 +205,7 @@ include __DIR__ . '/includes/header.php';
                             </div>
                         </div>
 
-                        <div class="col-md-6">
-                            <label class="form-label">Payment Due Date</label>
-                            <input type="date" name="payment_due_date" class="form-control" value="<?= htmlspecialchars($record['payment_due_date'] ?? '') ?>">
-                            <div class="form-text">Reminder triggers on Dashboard when pending balance &le; configured days.</div>
-                        </div>
-
-                        <div class="col-md-6">
+                        <div class="col-md-12">
                             <label class="form-label">Status</label>
                             <select name="status" class="form-select">
                                 <option value="Active" <?= ($record['status'] === 'Active') ? 'selected' : '' ?>>Active</option>

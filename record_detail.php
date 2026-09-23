@@ -93,9 +93,9 @@ include __DIR__ . '/includes/header.php';
                 </div>
 
                 <div class="bg-dark bg-opacity-50 p-2 px-3 rounded border border-secondary text-start">
-                    <div class="small text-white-50">Payment Due Date</div>
-                    <div class="fw-bold text-white"><?= format_date($record['payment_due_date']) ?></div>
-                    <div class="mt-1"><?= $record['due_badge'] ?></div>
+                    <div class="small text-white-50">Payment Status</div>
+                    <div class="fw-bold text-white"><?= format_currency($record['remaining_balance']) ?> Due</div>
+                    <div class="mt-1"><?= $record['payment_badge'] ?></div>
                 </div>
             </div>
         </div>

@@ -219,17 +219,15 @@ function get_dashboard_stats() {
     $total_received = (float)$pay_res['total_received'];
     $total_cost = (float)$stats['total_cost'];
 
-    // Overdue / Due payments count
-    $due_stmt = $db->query("
-        SELECT r.id, r.charge_amount, r.payment_due_date, COALESCE(SUM(p.amount), 0) as paid
+    // Records with pending balance count (Unpaid/Partial)
+    $unpaid_stmt = $db->query("
+        SELECT r.id
         FROM qid_records r
         LEFT JOIN payments p ON p.qid_record_id = r.id
-        WHERE r.payment_due_date IS NOT NULL
         GROUP BY r.id
-        HAVING (r.charge_amount - paid) > 0 
-           AND r.payment_due_date <= DATE_ADD(CURDATE(), INTERVAL {$alert_due_days} DAY)
+        HAVING (r.charge_amount - COALESCE(SUM(p.amount), 0)) > 0
     ");
-    $due_count = $due_stmt->rowCount();
+    $unpaid_count = $unpaid_stmt->rowCount();
 
     return [
         'total_records'       => (int)$stats['total_records'],
@@ -240,7 +238,8 @@ function get_dashboard_stats() {
         'total_profit'        => ($total_receivable - $total_cost),
         'expired_count'       => (int)$stats['expired_count'],
         'expiring_count'      => (int)$stats['expiring_count'],
-        ];
+        'unpaid_count'        => $unpaid_count,
+    ];
 }
 
 /**
@@ -271,23 +270,19 @@ function get_expiry_reminders($limit = 10) {
 }
 
 /**
- * Get Records with Pending Payment Due
+ * Get Records with Pending Balance (Unpaid or Partial)
  */
-function get_payment_due_reminders($limit = 10) {
+function get_pending_payment_records($limit = 10) {
     $db = getDB();
-    $alert_days = (int)get_setting('due_alert_days', 7);
     $stmt = $db->prepare("
         SELECT r.*, COALESCE(SUM(p.amount), 0) AS total_paid
         FROM qid_records r
         LEFT JOIN payments p ON p.qid_record_id = r.id
-        WHERE r.payment_due_date IS NOT NULL
-          AND r.payment_due_date <= DATE_ADD(CURDATE(), INTERVAL :days DAY)
         GROUP BY r.id
         HAVING (r.charge_amount - total_paid) > 0
-        ORDER BY r.payment_due_date ASC
+        ORDER BY (r.charge_amount - total_paid) DESC
         LIMIT :limit
     ");
-    $stmt->bindValue(':days', $alert_days, PDO::PARAM_INT);
     $stmt->bindValue(':limit', $limit, PDO::PARAM_INT);
     $stmt->execute();
 
@@ -296,6 +291,10 @@ function get_payment_due_reminders($limit = 10) {
         $results[] = enrich_qid_record($row);
     }
     return $results;
+}
+
+function get_payment_due_reminders($limit = 10) {
+    return get_pending_payment_records($limit);
 }
 
 /**
