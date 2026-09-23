@@ -60,6 +60,10 @@ class NetworkService {
   static const int _retryConcurrency = 10;
   static const Duration _retryTcpTimeout = Duration(milliseconds: 2000);
 
+  /// Cap on the patient pass: 60 hosts at 10-wide and 2s is ~12s, which is the
+  /// most waiting that can be justified after the fast sweep already missed.
+  static const int _retryHostLimit = 60;
+
   /// How many hosts of the last sweep answered on the HTTP port. Zero means the
   /// phone could not reach *anything* - a router/subnet problem, not our problem.
   static int _openHostCount = 0;
@@ -251,10 +255,15 @@ class NetworkService {
 
       // Slow pass on port 80 only. Wi-Fi drops packets under a heavy probe burst,
       // so a miss on the fast sweep is not proof the PC is absent.
-      onProgress?.call('Retrying $prefix* slowly...');
+      //
+      // Only the highest-priority candidates: at this concurrency and timeout the
+      // full 254 would take close to a minute and the app would look frozen.
+      final patientHosts = candidates.take(_retryHostLimit).toList();
+      onProgress?.call('Retrying ${patientHosts.length} likely hosts slowly...');
+
       final patient = await _sweep(
         prefix: prefix,
-        hosts: candidates,
+        hosts: patientHosts,
         port: 80,
         onProgress: onProgress,
         concurrency: _retryConcurrency,
