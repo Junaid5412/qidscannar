@@ -131,14 +131,16 @@ class ApiService {
   }
 
   /// Automatically discovers the QID server on the local Wi-Fi subnet.
-  /// Scans common Wi-Fi IP ranges and tests the discovery endpoint.
+  /// Optimized: parallel probing, filtered interfaces, fast verification.
   static Future<String?> discoverLocalServer({
     Function(String status)? onProgress,
   }) async {
-    onProgress?.call('Detecting Wi-Fi subnet...');
+    onProgress?.call('Detecting Wi-Fi network...');
 
     final Set<String> subnetPrefixes = {};
+    final Set<String> ownIps = {};
 
+    // 1. Detect device's local IPv4 addresses (Wi-Fi only)
     try {
       final interfaces = await NetworkInterface.list(
         includeLoopback: false,
@@ -146,8 +148,23 @@ class ApiService {
       );
 
       for (final iface in interfaces) {
+        // Skip cellular/mobile data interfaces
+        final name = iface.name.toLowerCase();
+        if (name.contains('rmnet') ||
+            name.contains('ccmni') ||
+            name.contains('pdp') ||
+            name.contains('clat') ||
+            name.contains('v4-rmnet')) {
+          continue;
+        }
+
         for (final addr in iface.addresses) {
           final ip = addr.address;
+          // Skip link-local and APIPA addresses
+          if (ip.startsWith('169.254.')) continue;
+          // Skip carrier IPs (they tend to be in 10.x or unusual ranges)
+          // but keep 10.0.2.x for emulators and 10.0.0.x/10.0.1.x for common LANs
+          ownIps.add(ip);
           final parts = ip.split('.');
           if (parts.length == 4) {
             final prefix = '${parts[0]}.${parts[1]}.${parts[2]}.';
@@ -157,70 +174,87 @@ class ApiService {
       }
     } catch (_) {}
 
-    // Check Android emulator loopback host first
-    for (final host in ['10.0.2.2', '127.0.0.1']) {
-      final verified = await _verifyQidServer(host);
-      if (verified != null) return verified;
-    }
+    onProgress?.call('Found ${subnetPrefixes.length} subnet(s), scanning...');
 
-    // Default common subnets if no interface was detected
+    // 2. Add common home/office subnets as fallback
     if (subnetPrefixes.isEmpty) {
-      subnetPrefixes.addAll(['192.168.0.', '192.168.1.', '192.168.100.', '10.0.0.']);
+      subnetPrefixes.addAll([
+        '192.168.0.',
+        '192.168.1.',
+        '192.168.10.',
+        '192.168.100.',
+        '10.0.0.',
+      ]);
     }
 
+    // 3. Scan each subnet
     for (final prefix in subnetPrefixes) {
-      onProgress?.call('Scanning Wi-Fi subnet ${prefix}0/24...');
+      onProgress?.call('Scanning ${prefix}0/24...');
 
-      // Smart probe ordering:
-      // 1. Common DHCP high range (150-165, where Windows PC 192.168.0.153/158 sits)
-      // 2. Common gateway & static server IPs (1-20)
-      // 3. Common DHCP midrange (100-149, 21-99, 166-254)
+      // Smart host ordering: prioritize where DHCP typically assigns PCs
       final List<int> hostOrder = [];
-      for (int i = 150; i <= 165; i++) {
+
+      // a) Common DHCP high range (where your PC at .153/.158 sits)
+      for (int i = 100; i <= 200; i++) {
         hostOrder.add(i);
       }
+      // b) Gateway & static server IPs
       for (int i = 1; i <= 20; i++) {
         if (!hostOrder.contains(i)) hostOrder.add(i);
       }
-      for (int i = 100; i <= 149; i++) {
+      // c) Remaining range
+      for (int i = 201; i <= 254; i++) {
         if (!hostOrder.contains(i)) hostOrder.add(i);
       }
       for (int i = 21; i <= 99; i++) {
         if (!hostOrder.contains(i)) hostOrder.add(i);
       }
-      for (int i = 166; i <= 254; i++) {
-        if (!hostOrder.contains(i)) hostOrder.add(i);
-      }
 
-      const int batchSize = 35;
+      // Remove our own device IPs from scan targets
+      hostOrder.removeWhere((h) => ownIps.contains('$prefix$h'));
+
+      // Scan in batches of 50 (parallel TCP probes)
+      const int batchSize = 50;
       for (int i = 0; i < hostOrder.length; i += batchSize) {
         final end = (i + batchSize < hostOrder.length) ? i + batchSize : hostOrder.length;
         final batch = hostOrder.sublist(i, end);
 
-        onProgress?.call('Probing ${prefix}${batch.first} - ${prefix}${batch.last}...');
+        onProgress?.call('Probing $prefix${batch.first} – $prefix${batch.last}...');
 
+        // Parallel TCP port 80 check
         final probeResults = await Future.wait(batch.map((hostNum) async {
           final targetIp = '$prefix$hostNum';
-          final isOpen = await _checkPort(targetIp, 80, timeoutMs: 320);
+          final isOpen = await _checkPort(targetIp, 80, timeoutMs: 500);
           return isOpen ? targetIp : null;
         }));
 
         final openIps = probeResults.whereType<String>().toList();
-        for (final openIp in openIps) {
-          onProgress?.call('Testing server at $openIp...');
-          final verified = await _verifyQidServer(openIp);
-          if (verified != null) {
-            return verified;
-          }
+        if (openIps.isEmpty) continue;
+
+        onProgress?.call('Found ${openIps.length} hosts, verifying...');
+
+        // Verify ALL open hosts in PARALLEL (not sequentially!)
+        final verifyResults = await Future.wait(openIps.map((openIp) async {
+          return await _verifyQidServer(openIp);
+        }));
+
+        for (final result in verifyResults) {
+          if (result != null) return result;
         }
       }
+    }
+
+    // 4. Last resort: try Android emulator host (only with fast port check)
+    if (await _checkPort('10.0.2.2', 80, timeoutMs: 300)) {
+      final result = await _verifyQidServer('10.0.2.2');
+      if (result != null) return result;
     }
 
     return null;
   }
 
   /// Fast TCP socket probe to check if HTTP port is open
-  static Future<bool> _checkPort(String ip, int port, {int timeoutMs = 320}) async {
+  static Future<bool> _checkPort(String ip, int port, {int timeoutMs = 500}) async {
     try {
       final socket = await Socket.connect(
         ip,
@@ -234,41 +268,52 @@ class ApiService {
     }
   }
 
-  /// Verifies if a given IP is indeed running the QID Management System
+  /// Verifies if a given IP is running the QID Management System.
+  /// Fast: tries /QID/api/discovery.php first (most likely path),
+  /// then falls back to root, with short timeouts.
   static Future<String?> _verifyQidServer(String ip, {int port = 80}) async {
     final portSuffix = (port == 80) ? '' : ':$port';
-    final candidateUrls = [
-      'http://$ip$portSuffix/QID',
-      'http://$ip$portSuffix',
-      'http://$ip$portSuffix/qid',
-    ];
 
-    for (final candidate in candidateUrls) {
-      // 1. Try discovery.php endpoint
+    // Try the known paths in priority order — /QID is the standard XAMPP path
+    final pathsToTry = ['/QID', '/qid', ''];
+
+    for (final path in pathsToTry) {
+      final baseUrl = 'http://$ip$portSuffix$path';
+
+      // Primary check: discovery.php (fastest, designed for this purpose)
       try {
-        final uri = Uri.parse('$candidate/api/discovery.php');
-        final response = await http.get(uri).timeout(const Duration(milliseconds: 1400));
+        final uri = Uri.parse('$baseUrl/api/discovery.php');
+        final response = await http
+            .get(uri)
+            .timeout(const Duration(milliseconds: 800));
         if (response.statusCode == 200) {
           final dynamic data = jsonDecode(response.body);
           if (data is Map && data['app'] == 'qid_scanner') {
+            // Use the server's own recommended URL if available
             final recUrl = data['recommended_url'] as String?;
             if (recUrl != null && recUrl.isNotEmpty) {
               return recUrl;
             }
-            return candidate;
+            return baseUrl;
           }
         }
       } catch (_) {}
-
-      // 2. Fallback to app_login.php
-      try {
-        final uri = Uri.parse('$candidate/api/app_login.php');
-        final response = await http.post(uri, body: {}).timeout(const Duration(milliseconds: 1200));
-        if (response.statusCode == 200 || response.statusCode == 400 || response.statusCode == 401) {
-          return candidate;
-        }
-      } catch (_) {}
     }
+
+    // Last fallback: check app_login.php on /QID only
+    try {
+      final uri = Uri.parse('http://$ip$portSuffix/QID/api/app_login.php');
+      final response = await http
+          .post(uri, body: {})
+          .timeout(const Duration(milliseconds: 800));
+      if (response.statusCode == 200 ||
+          response.statusCode == 400 ||
+          response.statusCode == 401) {
+        return 'http://$ip$portSuffix/QID';
+      }
+    } catch (_) {}
+
     return null;
   }
 }
+
