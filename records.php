@@ -99,6 +99,9 @@ include __DIR__ . '/includes/header.php';
         <p class="text-muted mb-0 small">Manage Resident IDs, renewal dates, costs, and collection balances</p>
     </div>
     <div class="d-flex align-items-center gap-2">
+        <a href="record_import.php" class="btn btn-outline-success btn-sm" title="Import Clients from Excel or CSV">
+            <i class="fa-solid fa-file-excel me-1"></i> Import Excel
+        </a>
         <a href="export.php?type=records" class="btn btn-outline-secondary btn-sm" title="Export as CSV">
             <i class="fa-solid fa-file-csv me-1"></i> Export CSV
         </a>
