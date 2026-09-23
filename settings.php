@@ -364,11 +364,24 @@ include __DIR__ . '/includes/header.php';
                             <span class="badge bg-light text-dark border"><i class="fa-solid fa-network-wired text-info me-1"></i> Sub-Second Push</span>
                         </div>
                     </div>
-                    <div class="col-md-4 text-md-end">
+                    <div class="col-md-5 text-md-end">
                         <div class="p-3 bg-light rounded border text-start">
-                            <div class="small fw-bold text-dark mb-1"><i class="fa-solid fa-link text-primary me-1"></i> Mobile App Server URL:</div>
-                            <code class="d-block text-break small p-1 bg-white border rounded mb-2"><?= htmlspecialchars($scheme . '://' . $_SERVER['HTTP_HOST'] . rtrim(dirname($_SERVER['REQUEST_URI']), '/\\')) ?></code>
-                            <div class="small text-muted">Android source code located in <code>mobile_app/</code> with automated GitHub Actions CI/CD.</div>
+                            <div class="d-flex justify-content-between align-items-center mb-1">
+                                <span class="small fw-bold text-dark"><i class="fa-solid fa-wifi text-success me-1"></i> Local Wi-Fi Server IP:</span>
+                                <span class="badge bg-success-subtle text-success border border-success-subtle px-2 py-0">Auto-Detect Ready</span>
+                            </div>
+                            <?php 
+                                $local_wifi_ip = gethostbyname(gethostname());
+                                $base_folder = rtrim(dirname($_SERVER['REQUEST_URI']), '/\\');
+                                $local_wifi_url = 'http://' . $local_wifi_ip . ($base_folder ?: '/QID');
+                            ?>
+                            <div class="input-group input-group-sm mb-2">
+                                <input type="text" class="form-control font-monospace bg-white" readonly value="<?= htmlspecialchars($local_wifi_url) ?>" id="localWifiUrlInput">
+                                <button class="btn btn-outline-secondary" type="button" onclick="navigator.clipboard.writeText(document.getElementById('localWifiUrlInput').value); this.innerText='Copied!'; setTimeout(()=>this.innerText='Copy', 1500);">Copy</button>
+                            </div>
+                            <div class="small text-muted" style="font-size: 0.78rem;">
+                                <i class="fa-solid fa-circle-check text-success me-1"></i> In the mobile app, tap <strong>Auto-Detect Wi-Fi</strong> to connect instantly without typing any IP address.
+                            </div>
                         </div>
                     </div>
                 </div>

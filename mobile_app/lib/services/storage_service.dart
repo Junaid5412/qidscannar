@@ -39,6 +39,11 @@ class StorageService {
     await prefs.remove(_keyAuthToken);
   }
 
+  static Future<void> setServerUrl(String serverUrl) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_keyServerUrl, cleanUrl(serverUrl));
+  }
+
   static Future<String> getServerUrl() async {
     final prefs = await SharedPreferences.getInstance();
     return prefs.getString(_keyServerUrl) ?? '';

@@ -18,26 +18,95 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _obscurePassword = true;
   bool _isLoading = false;
   bool _isTesting = false;
+  bool _isDiscovering = false;
+  String? _discoveryProgress;
   String? _statusMessage;
   bool _isStatusPositive = true;
 
   @override
   void initState() {
     super.initState();
-    _loadSavedUrl();
+    _initServerUrl();
   }
 
-  Future<void> _loadSavedUrl() async {
+  Future<void> _initServerUrl() async {
     final savedUrl = await StorageService.getServerUrl();
     if (savedUrl.isNotEmpty) {
-      _serverController.text = savedUrl;
+      if (mounted) {
+        setState(() {
+          _serverController.text = savedUrl;
+        });
+      }
+      // If saved URL points to localhost or is unreachable, attempt auto-discovery
+      if (savedUrl.contains('localhost') || savedUrl.contains('127.0.0.1')) {
+        _autoDiscoverServer(silent: true);
+      }
+    } else {
+      // Auto-discover Wi-Fi server on first launch
+      _autoDiscoverServer(silent: true);
+    }
+  }
+
+  Future<void> _autoDiscoverServer({bool silent = false}) async {
+    if (_isDiscovering) return;
+
+    setState(() {
+      _isDiscovering = true;
+      _discoveryProgress = 'Scanning local Wi-Fi network...';
+      if (!silent) {
+        _statusMessage = null;
+      }
+    });
+
+    try {
+      final detectedUrl = await ApiService.discoverLocalServer(
+        onProgress: (status) {
+          if (mounted) {
+            setState(() {
+              _discoveryProgress = status;
+            });
+          }
+        },
+      );
+
+      if (!mounted) return;
+
+      if (detectedUrl != null && detectedUrl.isNotEmpty) {
+        setState(() {
+          _serverController.text = detectedUrl;
+          _isDiscovering = false;
+          _discoveryProgress = null;
+          _statusMessage = 'Auto-detected QID Server:\n$detectedUrl';
+          _isStatusPositive = true;
+        });
+        await StorageService.setServerUrl(detectedUrl);
+      } else {
+        setState(() {
+          _isDiscovering = false;
+          _discoveryProgress = null;
+          if (!silent) {
+            _statusMessage = 'Could not auto-detect QID server on this Wi-Fi network.\nPlease verify PC is connected to the same Wi-Fi.';
+            _isStatusPositive = false;
+          }
+        });
+      }
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _isDiscovering = false;
+        _discoveryProgress = null;
+        if (!silent) {
+          _statusMessage = 'Wi-Fi auto-discovery error: $e';
+          _isStatusPositive = false;
+        }
+      });
     }
   }
 
   Future<void> _testConnection() async {
     final url = _serverController.text.trim();
     if (url.isEmpty) {
-      _setStatus('Please enter your Server URL first.', false);
+      _setStatus('Please enter or auto-detect your Server URL first.', false);
       return;
     }
 
@@ -183,30 +252,102 @@ class _LoginScreenState extends State<LoginScreen> {
                       ),
                       const SizedBox(height: 8),
 
-                      // Test Connection Button
-                      SizedBox(
-                        width: double.infinity,
-                        height: 38,
-                        child: OutlinedButton.icon(
-                          onPressed: _isTesting ? null : _testConnection,
-                          icon: _isTesting
-                              ? const SizedBox(
-                                  width: 14,
-                                  height: 14,
-                                  child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                                )
-                              : const Icon(Icons.wifi_tethering_rounded, size: 16),
-                          label: Text(
-                            _isTesting ? 'Testing...' : 'Test Server Connection',
-                            style: const TextStyle(fontSize: 12),
+                      // Auto-Detect & Test Connection Buttons
+                      Row(
+                        children: [
+                          // Auto-Detect Local Server
+                          Expanded(
+                            flex: 3,
+                            child: SizedBox(
+                              height: 38,
+                              child: ElevatedButton.icon(
+                                onPressed: (_isDiscovering || _isLoading)
+                                    ? null
+                                    : () => _autoDiscoverServer(silent: false),
+                                icon: _isDiscovering
+                                    ? const SizedBox(
+                                        width: 14,
+                                        height: 14,
+                                        child: CircularProgressIndicator(
+                                            strokeWidth: 2, color: Colors.white),
+                                      )
+                                    : const Icon(Icons.wifi_find_rounded, size: 18),
+                                label: Text(
+                                  _isDiscovering ? 'Scanning...' : 'Auto-Detect Wi-Fi',
+                                  style: const TextStyle(
+                                      fontSize: 12, fontWeight: FontWeight.bold),
+                                ),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: const Color(0xFF0D9488), // Emerald/Teal
+                                  foregroundColor: Colors.white,
+                                  elevation: 1,
+                                  shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(8)),
+                                ),
+                              ),
+                            ),
                           ),
-                          style: OutlinedButton.styleFrom(
-                            foregroundColor: const Color(0xFFCBD5E1),
-                            side: const BorderSide(color: Color(0xFF334155)),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                          const SizedBox(width: 8),
+                          // Manual Ping Test
+                          Expanded(
+                            flex: 2,
+                            child: SizedBox(
+                              height: 38,
+                              child: OutlinedButton.icon(
+                                onPressed: (_isTesting || _isLoading) ? null : _testConnection,
+                                icon: _isTesting
+                                    ? const SizedBox(
+                                        width: 12,
+                                        height: 12,
+                                        child: CircularProgressIndicator(
+                                            strokeWidth: 2, color: Colors.white),
+                                      )
+                                    : const Icon(Icons.check_circle_outline, size: 15),
+                                label: Text(
+                                  _isTesting ? 'Pinging...' : 'Test',
+                                  style: const TextStyle(fontSize: 12),
+                                ),
+                                style: OutlinedButton.styleFrom(
+                                  foregroundColor: const Color(0xFFCBD5E1),
+                                  side: const BorderSide(color: Color(0xFF334155)),
+                                  shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(8)),
+                                ),
+                              ),
+                            ),
                           ),
-                        ),
+                        ],
                       ),
+
+                      // Live Discovery Progress Text
+                      if (_discoveryProgress != null) ...[
+                        const SizedBox(height: 8),
+                        Row(
+                          children: [
+                            const SizedBox(
+                              width: 12,
+                              height: 12,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 1.5,
+                                color: Color(0xFF2DD4BF),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                _discoveryProgress!,
+                                style: const TextStyle(
+                                  color: Color(0xFF2DD4BF),
+                                  fontSize: 11,
+                                  fontStyle: FontStyle.italic,
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
                       const SizedBox(height: 16),
 
                       // Username
