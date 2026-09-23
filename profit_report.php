@@ -72,6 +72,9 @@ $total_profit = 0;
 $total_collected = 0;
 $total_pending_balance = 0;
 $realized_profit_total = 0;
+$total_security_held = 0;
+$total_security_returned = 0;
+$security_held_count = 0;
 
 $records = [];
 $company_stats = [];
@@ -92,6 +95,17 @@ foreach ($raw_records as $r) {
     // Realized Profit (Once actual cost is covered, every subsequent riyal is pure cash profit in pocket)
     $realized_profit = max(0, $paid - $cost);
     $realized_profit_total += $realized_profit;
+
+    // Security Deposit tracking
+    $sec_deposit = (float)($r['security_deposit'] ?? 0);
+    if ($sec_deposit > 0) {
+        if (empty($r['security_returned']) || $r['security_returned'] == 0) {
+            $total_security_held += $sec_deposit;
+            $security_held_count++;
+        } else {
+            $total_security_returned += $sec_deposit;
+        }
+    }
 
     $margin_pct = ($charge > 0) ? round(($profit / $charge) * 100, 1) : 0;
 
@@ -201,6 +215,43 @@ include __DIR__ . '/includes/header.php';
         </div>
     </div>
 </div>
+
+<?php if ($total_security_held > 0 || $total_security_returned > 0): ?>
+<!-- Security Deposit Summary -->
+<div class="card shadow-sm mb-4 border-start border-info border-3">
+    <div class="card-body py-3">
+        <div class="row align-items-center">
+            <div class="col-auto">
+                <div class="rounded-circle d-flex align-items-center justify-content-center" style="width:50px;height:50px;background:rgba(13,148,136,0.12)">
+                    <i class="fa-solid fa-shield-halved text-info fs-4"></i>
+                </div>
+            </div>
+            <div class="col">
+                <h6 class="fw-bold mb-1 text-dark"><i class="fa-solid fa-vault me-1"></i>Security Deposits Report</h6>
+                <div class="d-flex flex-wrap gap-4">
+                    <div>
+                        <span class="text-muted small">Currently Holding</span>
+                        <div class="fs-5 fw-bold text-info"><?= format_currency($total_security_held) ?></div>
+                        <span class="badge bg-info-subtle text-info border border-info-subtle"><i class="fa-solid fa-users me-1"></i><?= $security_held_count ?> people</span>
+                    </div>
+                    <?php if ($total_security_returned > 0): ?>
+                    <div>
+                        <span class="text-muted small">Total Returned</span>
+                        <div class="fs-5 fw-bold text-success"><?= format_currency($total_security_returned) ?></div>
+                        <span class="badge bg-success-subtle text-success border border-success-subtle"><i class="fa-solid fa-check-circle me-1"></i>Refunded</span>
+                    </div>
+                    <?php endif; ?>
+                    <div>
+                        <span class="text-muted small">All-Time Total</span>
+                        <div class="fs-5 fw-bold text-dark"><?= format_currency($total_security_held + $total_security_returned) ?></div>
+                        <span class="badge bg-light text-dark border"><i class="fa-solid fa-sigma me-1"></i>Combined</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+<?php endif; ?>
 
 <!-- Search & Filter Controls -->
 <div class="card mb-4 shadow-sm border-0">

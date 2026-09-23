@@ -48,22 +48,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             $stmt = $db->prepare("
                 INSERT INTO qid_records 
-                (full_name, qid_number, phone_number, company_name, job_title, nationality, expiry_date,  charge_amount, actual_cost, status, notes)
+                (full_name, qid_number, phone_number, company_name, job_title, nationality, expiry_date,  charge_amount, actual_cost, security_deposit, status, notes)
                 VALUES 
-                (:name, :qid, :phone, :company, :job, :nat, :exp,  :charge, :cost, :status, :notes)
+                (:name, :qid, :phone, :company, :job, :nat, :exp,  :charge, :cost, :security_deposit, :status, :notes)
             ");
             $stmt->execute([
-                ':name'    => $full_name,
-                ':qid'     => $qid_number,
-                ':phone'   => $phone_number,
-                ':company' => $company_name,
-                ':job'     => $job_title,
-                ':nat'     => $nationality,
-                ':exp'     => $expiry_date,
-                ':charge'  => $charge_amount,
-                ':cost'    => $actual_cost,
-                ':status'  => $status,
-                ':notes'   => $notes
+                ':name'             => $full_name,
+                ':qid'              => $qid_number,
+                ':phone'            => $phone_number,
+                ':company'          => $company_name,
+                ':job'              => $job_title,
+                ':nat'              => $nationality,
+                ':exp'              => $expiry_date,
+                ':charge'           => $charge_amount,
+                ':cost'             => $actual_cost,
+                ':security_deposit' => (float)($_POST['security_deposit'] ?? 0),
+                ':status'           => $status,
+                ':notes'            => $notes
             ]);
 
             $record_id = $db->lastInsertId();
@@ -195,6 +196,16 @@ include __DIR__ . '/includes/header.php';
                                 <span class="input-group-text bg-light text-muted fw-bold"><?= htmlspecialchars($currency) ?></span>
                             </div>
                             <div class="form-text">Government or service cost to us.</div>
+                        </div>
+
+                        <div class="col-md-4">
+                            <label class="form-label fw-semibold">Security Deposit Amount</label>
+                            <div class="input-group">
+                                <span class="input-group-text bg-light"><i class="fa-solid fa-shield-halved text-info"></i></span>
+                                <input type="number" name="security_deposit" id="security_deposit" class="form-control" step="0.01" min="0" value="0.00">
+                                <span class="input-group-text bg-light"><?= htmlspecialchars($currency) ?></span>
+                            </div>
+                            <div class="form-text">Refundable deposit collected from client</div>
                         </div>
 
                         <div class="col-md-4">

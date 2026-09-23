@@ -161,6 +161,29 @@ include __DIR__ . '/includes/header.php';
             </div>
         </div>
     </div>
+
+    <!-- Security Deposit -->
+    <?php if ((float)($record['security_deposit'] ?? 0) > 0): ?>
+        <div class="col-md-4">
+            <div class="card shadow-sm h-100 <?= !empty($record['security_returned']) ? 'border-start border-success border-3' : 'border-start border-info border-3' ?>">
+                <div class="card-body text-center py-3">
+                    <div class="text-muted small mb-1"><i class="fa-solid fa-shield-halved me-1"></i>Security Deposit</div>
+                    <div class="fs-4 fw-bold <?= !empty($record['security_returned']) ? 'text-success' : 'text-info' ?>">
+                        <?= format_currency($record['security_deposit']) ?>
+                    </div>
+                    <?php if (!empty($record['security_returned'])): ?>
+                        <span class="badge bg-success-subtle text-success border border-success-subtle mt-1">
+                            <i class="fa-solid fa-check-circle me-1"></i>Returned<?= !empty($record['security_returned_date']) ? ' on ' . format_date($record['security_returned_date']) : '' ?>
+                        </span>
+                    <?php else: ?>
+                        <span class="badge bg-info-subtle text-info border border-info-subtle mt-1">
+                            <i class="fa-solid fa-lock me-1"></i>Company Holding
+                        </span>
+                    <?php endif; ?>
+                </div>
+            </div>
+        </div>
+    <?php endif; ?>
 </div>
 
 <!-- Installment Payment History Table -->

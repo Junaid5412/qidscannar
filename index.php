@@ -94,6 +94,31 @@ include __DIR__ . '/includes/header.php';
             </div>
         </div>
     </div>
+
+    <!-- Security Deposit Held -->
+    <?php if ($stats['total_security_held'] > 0 || $stats['total_security_returned'] > 0): ?>
+        <div class="col-md-6 col-lg-3">
+            <div class="card shadow-sm h-100 border-start border-info border-3">
+                <div class="card-body py-3">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <div class="text-muted small mb-1">Security Deposits Held</div>
+                            <div class="fs-4 fw-bold text-info"><?= format_currency($stats['total_security_held']) ?></div>
+                            <div class="small text-muted mt-1">
+                                <i class="fa-solid fa-users me-1"></i><?= $stats['security_held_count'] ?> people
+                                <?php if ($stats['total_security_returned'] > 0): ?>
+                                    · <span class="text-success"><?= format_currency($stats['total_security_returned']) ?> returned</span>
+                                <?php endif; ?>
+                            </div>
+                        </div>
+                        <div class="rounded-circle d-flex align-items-center justify-content-center" style="width:48px;height:48px;background:rgba(13,148,136,0.1)">
+                            <i class="fa-solid fa-shield-halved text-info fs-5"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    <?php endif; ?>
 </div>
 
 <!-- Operational Reminder KPI Badges -->

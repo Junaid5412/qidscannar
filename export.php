@@ -45,12 +45,16 @@ if ($type === 'records') {
         'Actual Cost (QR)',
         'Total Paid (QR)',
         'Remaining Balance (QR)',
+        'Security Deposit (QR)',
+        'Security Status',
         'Record Status',
         'Notes'
     ]);
 
     foreach ($records as $r) {
         $enriched = enrich_qid_record($r);
+        $sec_dep = (float)($enriched['security_deposit'] ?? 0);
+        $sec_status = $sec_dep > 0 ? (!empty($enriched['security_returned']) ? 'Returned' : 'Held') : 'N/A';
         fputcsv($output, [
             $enriched['id'],
             $enriched['full_name'],
@@ -65,6 +69,8 @@ if ($type === 'records') {
             number_format($enriched['actual_cost'], 2, '.', ''),
             number_format($enriched['total_paid'], 2, '.', ''),
             number_format($enriched['remaining_balance'], 2, '.', ''),
+            number_format($sec_dep, 2, '.', ''),
+            $sec_status,
             $enriched['status'],
             $enriched['notes']
         ]);
@@ -149,6 +155,8 @@ if ($type === 'records') {
         'Total Collected (QR)',
         'Remaining Balance (QR)',
         'Realized Profit in Hand (QR)',
+        'Security Deposit (QR)',
+        'Security Status',
         'Status'
     ]);
 
@@ -160,6 +168,8 @@ if ($type === 'records') {
         $margin = ($charge > 0) ? round(($profit / $charge) * 100, 1) : 0;
         $balance = max(0, $charge - $paid);
         $realized = max(0, $paid - $cost);
+        $sec_dep = (float)($r['security_deposit'] ?? 0);
+        $sec_status = $sec_dep > 0 ? (!empty($r['security_returned']) ? 'Returned' : 'Held') : 'N/A';
 
         fputcsv($output, [
             $r['id'],
@@ -174,6 +184,8 @@ if ($type === 'records') {
             number_format($paid, 2, '.', ''),
             number_format($balance, 2, '.', ''),
             number_format($realized, 2, '.', ''),
+            number_format($sec_dep, 2, '.', ''),
+            $sec_status,
             $r['status']
         ]);
     }

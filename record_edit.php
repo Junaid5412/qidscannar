@@ -68,6 +68,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (!isset($_POST['action']) || $_POST
                     
                     charge_amount = :charge,
                     actual_cost = :cost,
+                    security_deposit = :security_deposit,
+                    security_returned = :security_returned,
+                    security_returned_date = :security_returned_date,
                     status = :status,
                     notes = :notes
                 WHERE id = :id
@@ -83,6 +86,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (!isset($_POST['action']) || $_POST
                 
                 ':charge'  => $charge_amount,
                 ':cost'    => $actual_cost,
+                ':security_deposit' => (float)($_POST['security_deposit'] ?? 0),
+                ':security_returned' => isset($_POST['security_returned']) ? 1 : 0,
+                ':security_returned_date' => isset($_POST['security_returned']) ? date('Y-m-d') : null,
                 ':status'  => $status,
                 ':notes'   => $notes,
                 ':id'      => $id
@@ -192,6 +198,25 @@ include __DIR__ . '/includes/header.php';
                             <div class="input-group">
                                 <input type="number" step="0.01" name="actual_cost" id="actual_cost" class="form-control" required value="<?= htmlspecialchars($record['actual_cost']) ?>">
                                 <span class="input-group-text bg-light fw-bold"><?= htmlspecialchars($currency) ?></span>
+                            </div>
+                        </div>
+
+                        <div class="col-md-4">
+                            <label class="form-label fw-semibold">Security Deposit Amount</label>
+                            <div class="input-group">
+                                <span class="input-group-text bg-light"><i class="fa-solid fa-shield-halved text-info"></i></span>
+                                <input type="number" name="security_deposit" id="security_deposit" class="form-control" step="0.01" min="0" value="<?= htmlspecialchars($record['security_deposit'] ?? '0.00') ?>">
+                                <span class="input-group-text bg-light"><?= htmlspecialchars($currency) ?></span>
+                            </div>
+                        </div>
+
+                        <div class="col-md-4">
+                            <label class="form-label fw-semibold">Security Deposit Status</label>
+                            <div class="form-check form-switch mt-2">
+                                <input class="form-check-input" type="checkbox" name="security_returned" id="security_returned" value="1" <?= (!empty($record['security_returned']) && $record['security_returned'] == 1) ? 'checked' : '' ?>>
+                                <label class="form-check-label" for="security_returned">
+                                    <i class="fa-solid fa-rotate-left text-warning me-1"></i> Security Deposit Returned to Client
+                                </label>
                             </div>
                         </div>
 

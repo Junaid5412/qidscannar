@@ -146,6 +146,10 @@ function enrich_qid_record($record) {
     $record['expected_profit'] = $charge - $cost;
     $record['remaining_balance'] = max(0, $charge - $paid);
 
+    // Security Deposit Status
+    $record['security_deposit'] = (float)($record['security_deposit'] ?? 0);
+    $record['security_returned'] = (int)($record['security_returned'] ?? 0);
+
     // Payment Status
     if ($paid >= $charge && $charge > 0) {
         $record['payment_status'] = 'Paid';
@@ -205,6 +209,10 @@ function get_dashboard_stats() {
             COUNT(r.id) AS total_records,
             COALESCE(SUM(r.charge_amount), 0) AS total_receivable,
             COALESCE(SUM(r.actual_cost), 0) AS total_cost,
+            COALESCE(SUM(CASE WHEN r.security_deposit > 0 AND r.security_returned = 0 THEN r.security_deposit ELSE 0 END), 0) AS total_security_held,
+            COALESCE(SUM(CASE WHEN r.security_deposit > 0 AND r.security_returned = 1 THEN r.security_deposit ELSE 0 END), 0) AS total_security_returned,
+            COALESCE(SUM(r.security_deposit), 0) AS total_security_all,
+            SUM(CASE WHEN r.security_deposit > 0 AND r.security_returned = 0 THEN 1 ELSE 0 END) AS security_held_count,
             SUM(CASE WHEN r.expiry_date < CURDATE() THEN 1 ELSE 0 END) AS expired_count,
             SUM(CASE WHEN r.expiry_date >= CURDATE() AND r.expiry_date <= DATE_ADD(CURDATE(), INTERVAL {$alert_expiry_days} DAY) THEN 1 ELSE 0 END) AS expiring_count
         FROM qid_records r
@@ -240,6 +248,10 @@ function get_dashboard_stats() {
         'expired_count'       => (int)$stats['expired_count'],
         'expiring_count'      => (int)$stats['expiring_count'],
         'unpaid_count'        => $unpaid_count,
+        'total_security_held'     => (float)$stats['total_security_held'],
+        'total_security_returned' => (float)$stats['total_security_returned'],
+        'total_security_all'      => (float)$stats['total_security_all'],
+        'security_held_count'     => (int)$stats['security_held_count'],
     ];
 }
 
