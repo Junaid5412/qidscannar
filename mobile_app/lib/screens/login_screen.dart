@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../services/api_service.dart';
+import '../services/network_service.dart';
 import '../services/storage_service.dart';
 import 'scanner_screen.dart';
 
@@ -29,22 +30,18 @@ class _LoginScreenState extends State<LoginScreen> {
     _initServerUrl();
   }
 
+  /// On every launch, make sure the URL in the box actually points at the server
+  /// on the Wi-Fi we are on *now*. A saved address is only a hint: DHCP will have
+  /// moved the PC the moment either device joined a different router.
   Future<void> _initServerUrl() async {
     final savedUrl = await StorageService.getServerUrl();
-    if (savedUrl.isNotEmpty) {
-      if (mounted) {
-        setState(() {
-          _serverController.text = savedUrl;
-        });
-      }
-      // If saved URL points to localhost or is unreachable, attempt auto-discovery
-      if (savedUrl.contains('localhost') || savedUrl.contains('127.0.0.1')) {
-        _autoDiscoverServer(silent: true);
-      }
-    } else {
-      // Auto-discover Wi-Fi server on first launch
-      _autoDiscoverServer(silent: true);
+    if (savedUrl.isNotEmpty && mounted) {
+      setState(() => _serverController.text = savedUrl);
     }
+
+    // ensureServerUrl() verifies the saved address first and only falls back to
+    // a scan when it is stale, so the usual launch costs one quick request.
+    _autoDiscoverServer(silent: true);
   }
 
   Future<void> _autoDiscoverServer({bool silent = false}) async {
@@ -52,7 +49,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
     setState(() {
       _isDiscovering = true;
-      _discoveryProgress = 'Scanning local Wi-Fi network...';
+      _discoveryProgress = silent ? 'Checking Wi-Fi connection...' : 'Scanning local Wi-Fi network...';
       if (!silent) {
         _statusMessage = null;
       }
@@ -61,7 +58,9 @@ class _LoginScreenState extends State<LoginScreen> {
     String lastProgress = '';
 
     try {
-      final detectedUrl = await ApiService.discoverLocalServer(
+      final detectedUrl = await NetworkService.ensureServerUrl(
+        // An explicit tap means "the saved one is wrong" - skip straight to a scan.
+        force: !silent,
         onProgress: (status) {
           lastProgress = status;
           if (mounted) {
@@ -75,12 +74,18 @@ class _LoginScreenState extends State<LoginScreen> {
       if (!mounted) return;
 
       if (detectedUrl != null && detectedUrl.isNotEmpty) {
+        final changed = _serverController.text.trim() != detectedUrl;
         setState(() {
           _serverController.text = detectedUrl;
           _isDiscovering = false;
           _discoveryProgress = null;
-          _statusMessage = '✓ Auto-detected QID Server:\n$detectedUrl';
           _isStatusPositive = true;
+          // Stay quiet on a silent check that confirmed the existing address.
+          if (!silent || changed) {
+            _statusMessage = changed
+                ? '✓ Wi-Fi changed - server found at:\n$detectedUrl'
+                : '✓ Connected to QID Server:\n$detectedUrl';
+          }
         });
         await StorageService.setServerUrl(detectedUrl);
       } else {
@@ -89,9 +94,11 @@ class _LoginScreenState extends State<LoginScreen> {
           _discoveryProgress = null;
           if (!silent) {
             _statusMessage =
-                'Could not find QID server.\n'
-                'Make sure phone & PC are on same Wi-Fi.\n'
-                'Last scan: $lastProgress';
+                'Could not find the QID server on this Wi-Fi.\n'
+                '• Phone and PC must be on the SAME Wi-Fi\n'
+                '• XAMPP Apache must be running\n'
+                '• Allow Apache through Windows Firewall\n'
+                'Last step: $lastProgress';
             _isStatusPositive = false;
           }
         });

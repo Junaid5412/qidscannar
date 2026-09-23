@@ -9,6 +9,7 @@ import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart
 import 'package:google_mlkit_barcode_scanning/google_mlkit_barcode_scanning.dart';
 
 import '../services/api_service.dart';
+import '../services/network_service.dart';
 import '../services/storage_service.dart';
 import '../widgets/manual_entry_dialog.dart';
 import '../widgets/scanner_overlay.dart';
@@ -49,6 +50,35 @@ class _ScannerScreenState extends State<ScannerScreen> {
     super.initState();
     _loadStaffInfo();
     _initializeCamera();
+    _startNetworkWatchdog();
+  }
+
+  /// Keeps the session alive across Wi-Fi changes: when the phone joins a
+  /// different network the PC's IP is different, so relocate it in the
+  /// background rather than failing the next scan.
+  void _startNetworkWatchdog() {
+    NetworkService.startWatching(
+      onReconnected: (url) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Wi-Fi changed - reconnected to $url'),
+            backgroundColor: const Color(0xFF0D9488),
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      },
+      onLost: () {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('QID server not found on this Wi-Fi. Scans will retry automatically.'),
+            backgroundColor: Colors.redAccent,
+            duration: Duration(seconds: 4),
+          ),
+        );
+      },
+    );
   }
 
   Future<void> _loadStaffInfo() async {
@@ -90,6 +120,7 @@ class _ScannerScreenState extends State<ScannerScreen> {
 
   @override
   void dispose() {
+    NetworkService.stopWatching();
     _cameraController?.stopImageStream();
     _cameraController?.dispose();
     _textRecognizer.close();
@@ -286,6 +317,19 @@ class _ScannerScreenState extends State<ScannerScreen> {
       if (res['success'] == true) {
         HapticFeedback.vibrate();
         SystemSound.play(SystemSoundType.click);
+
+        // The push only went through after discovery relocated the PC - let the
+        // user know the address moved so the change is not silent.
+        final reconnectedUrl = res['reconnected_url'];
+        if (reconnectedUrl is String && reconnectedUrl.isNotEmpty) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Server moved - now synced to $reconnectedUrl'),
+              backgroundColor: const Color(0xFF0D9488),
+              duration: const Duration(seconds: 3),
+            ),
+          );
+        }
       } else {
         HapticFeedback.vibrate();
         ScaffoldMessenger.of(context).showSnackBar(

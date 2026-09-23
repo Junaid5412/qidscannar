@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
+import '../services/network_service.dart';
 import '../services/storage_service.dart';
 import 'login_screen.dart';
 
@@ -14,6 +15,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
   String _fullName = '';
   String _username = '';
   String _serverUrl = '';
+  String _networkKey = '';
+  bool _isRedetecting = false;
+  String? _redetectStatus;
 
   @override
   void initState() {
@@ -25,10 +29,39 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final name = await StorageService.getFullName();
     final user = await StorageService.getUsername();
     final url = await StorageService.getServerUrl();
+    final network = await NetworkService.currentNetworkKey();
+    if (!mounted) return;
     setState(() {
       _fullName = name;
       _username = user;
       _serverUrl = url;
+      _networkKey = network ?? '';
+    });
+  }
+
+  /// Forces a fresh sweep of the current Wi-Fi. The manual escape hatch for when
+  /// the PC moved and the background watchdog has not caught up yet.
+  Future<void> _redetectServer() async {
+    setState(() {
+      _isRedetecting = true;
+      _redetectStatus = 'Scanning Wi-Fi...';
+    });
+
+    final url = await NetworkService.ensureServerUrl(
+      force: true,
+      onProgress: (status) {
+        if (mounted) setState(() => _redetectStatus = status);
+      },
+    );
+
+    if (!mounted) return;
+
+    setState(() {
+      _isRedetecting = false;
+      _redetectStatus = url != null
+          ? 'Connected to $url'
+          : 'No QID server found. Check that the PC is on this Wi-Fi, XAMPP is running, and Apache is allowed through Windows Firewall.';
+      if (url != null) _serverUrl = url;
     });
   }
 
@@ -120,11 +153,61 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                 ),
                 const SizedBox(height: 12),
+                const Text('Current Wi-Fi Network:', style: TextStyle(color: Color(0xFF64748B), fontSize: 11)),
+                const SizedBox(height: 2),
+                Text(
+                  _networkKey.isNotEmpty ? '$_networkKey*' : 'Not connected to Wi-Fi',
+                  style: const TextStyle(
+                    color: Color(0xFFCBD5E1),
+                    fontFamily: 'monospace',
+                    fontSize: 13,
+                  ),
+                ),
+                const SizedBox(height: 12),
                 const Text('Device Platform:', style: TextStyle(color: Color(0xFF64748B), fontSize: 11)),
                 const SizedBox(height: 2),
                 Text(
                   Platform.isIOS ? 'Apple iOS (iPhone)' : 'Google Android',
                   style: const TextStyle(color: Color(0xFFCBD5E1), fontSize: 13),
+                ),
+                const SizedBox(height: 16),
+
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                    onPressed: _isRedetecting ? null : _redetectServer,
+                    icon: _isRedetecting
+                        ? const SizedBox(
+                            width: 14,
+                            height: 14,
+                            child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                          )
+                        : const Icon(Icons.wifi_find_rounded, size: 18),
+                    label: Text(
+                      _isRedetecting ? 'Scanning...' : 'Re-Detect Server IP',
+                      style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
+                    ),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF0D9488),
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    ),
+                  ),
+                ),
+
+                if (_redetectStatus != null) ...[
+                  const SizedBox(height: 8),
+                  Text(
+                    _redetectStatus!,
+                    style: const TextStyle(color: Color(0xFF2DD4BF), fontSize: 11),
+                  ),
+                ],
+
+                const SizedBox(height: 4),
+                const Text(
+                  'The server IP changes on every Wi-Fi network. The app re-detects it automatically; use this if it falls behind.',
+                  style: TextStyle(color: Color(0xFF64748B), fontSize: 10.5),
                 ),
               ],
             ),

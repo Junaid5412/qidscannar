@@ -49,10 +49,54 @@ git push -u origin main
 2. In the top navigation bar, ensure the green badge is pulsing:
    > 🟢 **Mobile Scanner Active**
 3. Open the **QID Scanner** app on your iPhone or Android phone:
-   - **Server URL**: Enter your live website address (e.g. `https://yourdomain.com`).
+   - **Server URL**: leave it alone. On a local XAMPP install the app finds the PC
+     by itself and fills this in (see *Local Wi-Fi auto-detection* below). Only type
+     an address here when connecting to a live website (e.g. `https://yourdomain.com`).
    - **Username**: Enter your staff username (e.g. `admin`).
    - **Password**: Enter your staff password.
-   - Tap **Test Server Connection**, then **Login & Connect**.
+   - Tap **Login & Connect**.
+
+---
+
+## 📶 Local Wi-Fi Auto-Detection (XAMPP)
+
+A XAMPP PC gets its IP address from the router by DHCP, so it is different on every
+Wi-Fi network — `192.168.0.158` at one office, `192.168.1.42` at the next. The app
+never asks you to keep up with that:
+
+| When | What the app does | Typical time |
+|---|---|---|
+| App launch | Re-checks the saved address is still live | < 1s |
+| Rejoining a Wi-Fi it has seen before | Reconnects to the address remembered for that network | < 1s |
+| A brand-new Wi-Fi | Sweeps the subnet in parallel, trying the host numbers that worked on other networks first | 1–4s |
+| Wi-Fi switches while scanning | Background watchdog relocates the PC and shows "Wi-Fi changed — reconnected to …" | ~5s |
+| A scan fails because the IP moved | Re-discovers and retries that scan automatically | ~2s |
+
+Detection works by probing `<host>/api/discovery.php`, which returns a
+`qid_scanner` fingerprint plus a stable `server_id`, so the app will never latch
+onto a router or printer that merely has port 80 open.
+
+If you ever need to force it: **Settings → Re-Detect Server IP**.
+
+### One-time setup on the XAMPP PC
+
+Windows Firewall blocks incoming connections to Apache by default, which makes the
+PC invisible to the phone no matter how well discovery works. Fix it once:
+
+> Right-click `tools\allow_wifi_access.bat` → **Run as administrator**
+
+That adds an inbound rule for TCP 80/8080 scoped to `remoteip=localsubnet`, so only
+devices on your own Wi-Fi can connect — the PC is not exposed to the internet.
+`tools\remove_wifi_access.bat` undoes it.
+
+### If the phone still cannot find the PC
+
+1. Phone and PC must be on the **same** Wi-Fi (not guest Wi-Fi, and phone not on mobile data).
+2. XAMPP **Apache** must be running.
+3. Some routers have **AP/client isolation** enabled, which blocks device-to-device
+   traffic entirely. Turn it off in the router settings.
+4. Confirm from the phone's browser: open `http://<PC-IP>/QID` — the desktop's
+   Settings page shows the current IP under *Local Wi-Fi Server IP*.
 4. Point your camera at any Qatar ID card barcode:
    - Your phone will vibrate and click.
    - Your desktop screen will immediately chime and open the customer's complete financial ledger and profile!

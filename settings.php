@@ -370,17 +370,52 @@ include __DIR__ . '/includes/header.php';
                                 <span class="small fw-bold text-dark"><i class="fa-solid fa-wifi text-success me-1"></i> Local Wi-Fi Server IP:</span>
                                 <span class="badge bg-success-subtle text-success border border-success-subtle px-2 py-0">Auto-Detect Ready</span>
                             </div>
-                            <?php 
-                                $local_wifi_ip = gethostbyname(gethostname());
-                                $base_folder = rtrim(dirname($_SERVER['REQUEST_URI']), '/\\');
-                                $local_wifi_url = 'http://' . $local_wifi_ip . ($base_folder ?: '/QID');
+                            <?php
+                                // Enumerates every adapter and ranks the real Wi-Fi address first.
+                                // gethostbyname() alone often returns a VirtualBox/VMware address.
+                                require_once __DIR__ . '/includes/lan_ip.php';
+                                $lan_urls      = qid_lan_urls();
+                                $local_wifi_url = $lan_urls[0];
                             ?>
                             <div class="input-group input-group-sm mb-2">
                                 <input type="text" class="form-control font-monospace bg-white" readonly value="<?= htmlspecialchars($local_wifi_url) ?>" id="localWifiUrlInput">
                                 <button class="btn btn-outline-secondary" type="button" onclick="navigator.clipboard.writeText(document.getElementById('localWifiUrlInput').value); this.innerText='Copied!'; setTimeout(()=>this.innerText='Copy', 1500);">Copy</button>
                             </div>
+
+                            <?php if (count($lan_urls) > 1): ?>
+                                <div class="small text-muted mb-2" style="font-size: 0.75rem;">
+                                    <i class="fa-solid fa-network-wired me-1"></i> Other network adapters on this PC:
+                                    <?php foreach (array_slice($lan_urls, 1) as $alt_url): ?>
+                                        <div class="font-monospace text-secondary"><?= htmlspecialchars($alt_url) ?></div>
+                                    <?php endforeach; ?>
+                                </div>
+                            <?php endif; ?>
+
                             <div class="small text-muted" style="font-size: 0.78rem;">
-                                <i class="fa-solid fa-circle-check text-success me-1"></i> In the mobile app, tap <strong>Auto-Detect Wi-Fi</strong> to connect instantly without typing any IP address.
+                                <i class="fa-solid fa-circle-check text-success me-1"></i>
+                                This IP <strong>changes on every Wi-Fi network</strong> &mdash; you never need to type it.
+                                The app re-detects it automatically on launch and whenever the phone switches Wi-Fi.
+                            </div>
+
+                            <hr class="my-2">
+                            <div class="small" style="font-size: 0.75rem;">
+                                <span class="fw-bold text-dark"><i class="fa-solid fa-shield-halved text-warning me-1"></i> Phone can't find the PC?</span>
+                                <div class="text-muted mb-1">
+                                    Windows Firewall blocks Apache by default &mdash; this is the most common cause.
+                                    Right-click <code>tools\allow_wifi_access.bat</code> in the QID folder and choose
+                                    <strong>Run as administrator</strong> (one time only), or run this command in an
+                                    <strong>Administrator</strong> Command Prompt:
+                                </div>
+                                <div class="input-group input-group-sm">
+                                    <input type="text" class="form-control font-monospace bg-white" readonly
+                                           style="font-size: 0.7rem;"
+                                           id="firewallCmdInput"
+                                           value='netsh advfirewall firewall add rule name="XAMPP Apache (QID) HTTP" dir=in action=allow protocol=TCP localport=80,8080 profile=any remoteip=localsubnet'>
+                                    <button class="btn btn-outline-secondary" type="button" onclick="navigator.clipboard.writeText(document.getElementById('firewallCmdInput').value); this.innerText='Copied!'; setTimeout(()=>this.innerText='Copy', 1500);">Copy</button>
+                                </div>
+                                <div class="text-muted mt-1" style="font-size: 0.7rem;">
+                                    <code>remoteip=localsubnet</code> limits this to your own Wi-Fi &mdash; it does not expose the PC to the internet.
+                                </div>
                             </div>
                         </div>
                     </div>

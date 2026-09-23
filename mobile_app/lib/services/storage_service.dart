@@ -1,7 +1,14 @@
+import 'dart:convert';
+
 import 'package:shared_preferences/shared_preferences.dart';
 
 class StorageService {
   static const String _keyServerUrl = 'server_url';
+  static const String _keyServerId = 'server_id';
+
+  /// Maps a Wi-Fi subnet prefix (e.g. "192.168.0.") to the server URL that last
+  /// worked there, so rejoining a known network reconnects without scanning.
+  static const String _keyServerMap = 'server_url_by_network';
   static const String _keyAuthToken = 'auth_token';
   static const String _keyUserId = 'user_id';
   static const String _keyUsername = 'username';
@@ -47,6 +54,66 @@ class StorageService {
   static Future<String> getServerUrl() async {
     final prefs = await SharedPreferences.getInstance();
     return prefs.getString(_keyServerUrl) ?? '';
+  }
+
+  static Future<void> setServerId(String serverId) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_keyServerId, serverId);
+  }
+
+  static Future<String> getServerId() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString(_keyServerId) ?? '';
+  }
+
+  static Future<Map<String, String>> _readServerMap() async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_keyServerMap);
+    if (raw == null || raw.isEmpty) return {};
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is Map) {
+        return decoded.map((k, v) => MapEntry(k.toString(), v.toString()));
+      }
+    } catch (_) {
+      // A corrupt cache is not worth surfacing - discovery just rescans.
+    }
+    return {};
+  }
+
+  /// Records that [url] reached the QID server while on the [networkKey] subnet.
+  static Future<void> rememberServerForNetwork(String networkKey, String url) async {
+    final prefs = await SharedPreferences.getInstance();
+    final map = await _readServerMap();
+    map[networkKey] = cleanUrl(url);
+    await prefs.setString(_keyServerMap, jsonEncode(map));
+  }
+
+  static Future<String?> getServerForNetwork(String networkKey) async {
+    final map = await _readServerMap();
+    return map[networkKey];
+  }
+
+  /// Every server URL seen on any network, most useful first. Discovery mines the
+  /// host numbers out of these to guess the PC's address on an unseen network.
+  static Future<List<String>> getAllKnownServerUrls() async {
+    final urls = <String>[];
+
+    final current = await getServerUrl();
+    if (current.isNotEmpty) urls.add(current);
+
+    for (final url in (await _readServerMap()).values) {
+      if (!urls.contains(url)) urls.add(url);
+    }
+
+    return urls;
+  }
+
+  static Future<Map<String, String>> getKnownNetworks() async => _readServerMap();
+
+  static Future<void> forgetNetworks() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_keyServerMap);
   }
 
   static Future<String> getAuthToken() async {
