@@ -43,11 +43,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         // 4. Optionally insert sample demo data
         if ($load_sample) {
             $stmt = $pdo->prepare("
-                INSERT INTO `qid_records` (`id`, `full_name`, `qid_number`, `phone_number`, `company_name`, `job_title`, `nationality`, `expiry_date`, `payment_due_date`, `charge_amount`, `actual_cost`, `status`, `notes`) 
+                INSERT INTO `qid_records` (`id`, `full_name`, `qid_number`, `phone_number`, `company_name`, `job_title`, `nationality`, `expiry_date`, `charge_amount`, `actual_cost`, `status`, `notes`) 
                 VALUES 
-                (1, 'Mohammed Al-Kuwari', '28863401234', '+974 5511 2233', 'Al Noor Trading W.L.L', 'Sales Executive', 'Qatari', DATE_ADD(CURDATE(), INTERVAL 14 DAY), DATE_ADD(CURDATE(), INTERVAL 3 DAY), 2500.00, 1220.00, 'Active', 'Example customer: Charge 2500 QR, Actual cost 1220 QR'),
-                (2, 'Ahmed Tariq', '29258602345', '+974 6622 3344', 'Gulf Falcon Contracting', 'Civil Engineer', 'Egyptian', DATE_SUB(CURDATE(), INTERVAL 3 DAY), DATE_SUB(CURDATE(), INTERVAL 1 DAY), 1800.00, 1000.00, 'Expired', 'QID Expired recently - urgent renewal needed'),
-                (3, 'Rajesh Patel', '28535603456', '+974 7733 4455', 'Doha Express Logistics', 'Operations Supervisor', 'Indian', DATE_ADD(CURDATE(), INTERVAL 45 DAY), DATE_ADD(CURDATE(), INTERVAL 7 DAY), 3200.00, 1600.00, 'Active', 'VIP Client renewal package')
+                (1, 'Mohammed Al-Kuwari', '28863401234', '+974 5511 2233', 'Al Noor Trading W.L.L', 'Sales Executive', 'Qatari', DATE_ADD(CURDATE(), INTERVAL 14 DAY), 2500.00, 1220.00, 'Active', 'Example customer: Charge 2500 QR, Actual cost 1220 QR'),
+                (2, 'Ahmed Tariq', '29258602345', '+974 6622 3344', 'Gulf Falcon Contracting', 'Civil Engineer', 'Egyptian', DATE_SUB(CURDATE(), INTERVAL 3 DAY), 1800.00, 1000.00, 'Expired', 'QID Expired recently - urgent renewal needed'),
+                (3, 'Rajesh Patel', '28535603456', '+974 7733 4455', 'Doha Express Logistics', 'Operations Supervisor', 'Indian', DATE_ADD(CURDATE(), INTERVAL 45 DAY), 3200.00, 1600.00, 'Active', 'VIP Client renewal package')
             ");
             $stmt->execute();
 

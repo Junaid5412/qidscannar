@@ -23,7 +23,6 @@ CREATE TABLE `qid_records` (
   `job_title` VARCHAR(100) DEFAULT NULL,
   `nationality` VARCHAR(100) DEFAULT NULL,
   `expiry_date` DATE NOT NULL,
-  `payment_due_date` DATE DEFAULT NULL,
   `charge_amount` DECIMAL(10,2) NOT NULL DEFAULT 0.00,
   `actual_cost` DECIMAL(10,2) NOT NULL DEFAULT 0.00,
   `status` ENUM('Active', 'Expired', 'Renewed', 'Cancelled') NOT NULL DEFAULT 'Active',
@@ -32,8 +31,7 @@ CREATE TABLE `qid_records` (
   `updated_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
   INDEX `idx_qid` (`qid_number`),
-  INDEX `idx_expiry` (`expiry_date`),
-  INDEX `idx_due` (`payment_due_date`)
+  INDEX `idx_expiry` (`expiry_date`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- 2. Payments Installments
@@ -65,7 +63,6 @@ INSERT INTO `settings` (`setting_key`, `setting_value`) VALUES
 ('app_name', 'QID Management System'),
 ('currency', 'QR'),
 ('expiry_alert_days', '30'),
-('due_alert_days', '7'),
 ('gdrive_enabled', '0'),
 ('gdrive_folder_id', ''),
 ('gdrive_client_email', ''),

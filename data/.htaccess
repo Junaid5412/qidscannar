@@ -1,0 +1,5 @@
+# Deny direct access to data directory files
+Options -Indexes
+<FilesMatch ".*">
+    Require all denied
+</FilesMatch>
