@@ -18,3 +18,9 @@ mobile_app/local.properties
 mobile_app/.idea/
 *.apk
 *.aab
+
+# Bridge secrets (never commit)
+bridge/bridge_config.php
+tools/bridge_config_agent.php
+bridge/jobs/*
+!bridge/jobs/.htaccess

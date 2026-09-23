@@ -54,6 +54,21 @@ class NetworkService {
   /// HTTP budget for reading /api/discovery.php off a host with an open port.
   static const Duration _httpTimeout = Duration(milliseconds: 1800);
 
+  /// Budget for a fixed remote address. The online bridge adds an internet hop
+  /// plus the PC agent's own round trip, so it needs far more room than a LAN
+  /// probe - and there is only ever one such request, so patience costs nothing.
+  static const Duration _remoteHttpTimeout = Duration(seconds: 15);
+
+  static final RegExp _bareIpv4 = RegExp(r'^\d{1,3}(\.\d{1,3}){3}$');
+
+  /// True when [url] names a fixed address - the online bridge or a live site -
+  /// rather than a LAN IP that DHCP is free to move around.
+  static bool isFixedRemoteUrl(String url) {
+    final host = Uri.tryParse(StorageService.cleanUrl(url))?.host ?? '';
+    if (host.isEmpty) return false;
+    return !_bareIpv4.hasMatch(host);
+  }
+
   /// Simultaneous probes in flight. High enough to sweep 254 hosts in a handful
   /// of waves, low enough to stay well clear of the per-process socket limit.
   static const int _concurrency = 48;
@@ -169,13 +184,31 @@ class NetworkService {
     bool force = false,
     void Function(String status)? onProgress,
   }) async {
-    // 1. The URL we are already using - verify and we are done.
-    if (!force) {
-      final saved = await StorageService.getServerUrl();
-      if (saved.isNotEmpty) {
-        onProgress?.call('Checking saved server...');
-        if (await _verifyUrl(saved) != null) return saved;
+    final saved = await StorageService.getServerUrl();
+
+    // 0. A fixed remote address (the online bridge, or a live site) is pinned.
+    //    It cannot drift with DHCP, so scanning the LAN for it is meaningless -
+    //    and worse, a stray LAN match would overwrite the address the user
+    //    deliberately configured. Verify it and stop either way.
+    if (saved.isNotEmpty && isFixedRemoteUrl(saved)) {
+      onProgress?.call('Checking your server address...');
+      if (await _verifyUrl(saved, timeout: _remoteHttpTimeout) != null) {
+        return saved;
       }
+      lastDiagnostics =
+          'Could not reach $saved\n\n'
+          'This is a fixed address, so the app will not scan the Wi-Fi for it.\n\n'
+          '• If this is your online bridge, check that the PC is running\n'
+          '  tools\\start_bridge_agent.bat and that the window is still open\n'
+          '• Check this phone has internet\n'
+          '• To go back to local Wi-Fi mode, clear the Server URL field';
+      return null;
+    }
+
+    // 1. The URL we are already using - verify and we are done.
+    if (!force && saved.isNotEmpty) {
+      onProgress?.call('Checking saved server...');
+      if (await _verifyUrl(saved) != null) return saved;
     }
 
     // 2. A URL that previously worked on a subnet this device is currently on.
@@ -606,31 +639,35 @@ class NetworkService {
   }
 
   /// Verifies an already-known base URL is still live. Used for the fast path.
-  static Future<QidServerInfo?> _verifyUrl(String baseUrl) async {
-    return _fetchDiscovery(StorageService.cleanUrl(baseUrl));
+  static Future<QidServerInfo?> _verifyUrl(String baseUrl, {Duration? timeout}) {
+    return _fetchDiscovery(StorageService.cleanUrl(baseUrl), timeout: timeout);
   }
 
   /// Reads `<baseUrl>/api/discovery.php` and parses the QID fingerprint.
-  static Future<QidServerInfo?> _fetchDiscovery(String baseUrl) async {
+  static Future<QidServerInfo?> _fetchDiscovery(
+    String baseUrl, {
+    Duration? timeout,
+  }) async {
     try {
       final uri = Uri.parse('$baseUrl/api/discovery.php');
-      final response = await http.get(uri).timeout(_httpTimeout);
+      final response = await http.get(uri).timeout(timeout ?? _httpTimeout);
 
       if (response.statusCode != 200) return null;
 
       final dynamic data = jsonDecode(response.body);
       if (data is! Map || data['app'] != 'qid_scanner') return null;
 
-      final recommended = (data['recommended_url'] as String?)?.trim();
       final alternates = (data['alternate_urls'] as List?)
               ?.whereType<String>()
               .toList() ??
           const <String>[];
 
       return QidServerInfo(
-        // recommended_url echoes back the host we used, so it already carries the
-        // right IP; fall back to what we asked for if the server omitted it.
-        url: (recommended != null && recommended.isNotEmpty) ? recommended : baseUrl,
+        // Deliberately NOT data['recommended_url']: when the app talks through
+        // the online bridge, the PC answers with its own LAN address, which the
+        // phone cannot reach. The address we just used is the one proven to
+        // work, so that is the one we keep.
+        url: baseUrl,
         serverId: (data['server_id'] as String?) ?? '',
         hostname: (data['hostname'] as String?) ?? 'QID Server',
         alternateUrls: alternates,
@@ -676,6 +713,11 @@ class NetworkService {
     _watchedNetworkKey = await currentNetworkKey();
 
     _watchTimer = Timer.periodic(const Duration(seconds: 5), (_) async {
+      // A fixed address does not move when the phone changes network, so there
+      // is nothing to re-discover and nothing to tell the user about.
+      final configured = await StorageService.getServerUrl();
+      if (configured.isNotEmpty && isFixedRemoteUrl(configured)) return;
+
       final key = await currentNetworkKey();
       if (key == null || key == _watchedNetworkKey) return;
 
