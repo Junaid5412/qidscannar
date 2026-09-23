@@ -109,6 +109,11 @@ jobs:
           flutter create --platforms=ios --org com.qid --project-name qid_scanner .
           plutil -insert NSCameraUsageDescription -string "This app requires camera access to scan Qatar ID card barcodes." ios/Runner/Info.plist || true
           plutil -insert NSAppTransportSecurity -xml "<dict><key>NSAllowsArbitraryLoads</key><true/></dict>" ios/Runner/Info.plist || true
+          # Required by local_auth on Face ID devices. iOS terminates the app the
+          # moment Face ID is requested without this key, so its absence would
+          # crash the fingerprint login rather than merely refuse it.
+          plutil -insert NSFaceIDUsageDescription -string "Use Face ID to unlock the QID Scanner without typing your password." ios/Runner/Info.plist || true
+          plutil -insert NSPhotoLibraryUsageDescription -string "Select a photo of a Qatar ID card to scan it." ios/Runner/Info.plist || true
           # Force iOS 15.5 deployment target for ML Kit compatibility
           sed -i '' -E "s/^#? ?platform :ios.*/platform :ios, '15.5'/" ios/Podfile
           sed -i '' -E "s/IPHONEOS_DEPLOYMENT_TARGET = [0-9.]+/IPHONEOS_DEPLOYMENT_TARGET = 15.5/g" ios/Runner.xcodeproj/project.pbxproj
