@@ -14,8 +14,15 @@ $db = getDB();
 $company_filter = trim($_GET['company'] ?? '');
 $status_filter = trim($_GET['status'] ?? '');
 $search = trim($_GET['search'] ?? '');
-$date_from = trim($_GET['date_from'] ?? '');
-$date_to = trim($_GET['date_to'] ?? '');
+// Default to current month if NO filters are applied
+$is_filtered = !empty($_GET);
+if (!$is_filtered) {
+    $date_from = date('Y-m-01');
+    $date_to = date('Y-m-t');
+} else {
+    $date_from = trim($_GET['date_from'] ?? '');
+    $date_to = trim($_GET['date_to'] ?? '');
+}
 
 $query = "
     SELECT r.*,
@@ -121,126 +128,6 @@ uasort($company_stats, function($a, $b) {
 $overall_margin = ($total_billed > 0) ? round(($total_profit / $total_billed) * 100, 1) : 0;
 $pending_profit = max(0, $total_profit - $realized_profit_total);
 
-$current_month_key = date('Y-m'); // e.g. '2026-09'
-$next_month_key = date('Y-m', strtotime('+1 month')); // e.g. '2026-10'
-
-$monthly_stats = [];
-
-// Helper to initialize month bucket
-$init_month = function($m_key) use (&$monthly_stats) {
-    if (!isset($monthly_stats[$m_key])) {
-        $monthly_stats[$m_key] = [
-            'month_label'       => date('F Y', strtotime($m_key . '-01')),
-            'expected_profit'   => 0,
-            'received_profit'   => 0,
-            'pending_profit'    => 0,
-            'cash_collected'    => 0,
-            'cost_recovered'    => 0,
-            'clients_pending'   => [],
-            'clients_received'  => []
-        ];
-    }
-};
-
-// Always ensure current month and next month are visible in monthly analysis
-$init_month($current_month_key);
-$init_month($next_month_key);
-
-// 1. Process all payments chronologically to know EXACTLY when costs are completed
-$all_payments_stmt = $db->query("
-    SELECT p.*, r.full_name, r.charge_amount, r.actual_cost 
-    FROM payments p
-    JOIN qid_records r ON r.id = p.qid_record_id
-    ORDER BY p.qid_record_id ASC, p.payment_date ASC, p.payment_time ASC, p.id ASC
-");
-$all_payments = $all_payments_stmt->fetchAll();
-
-$running_record_paid = [];
-foreach ($all_payments as $pay) {
-    $rid = $pay['qid_record_id'];
-    $cost = (float)$pay['actual_cost'];
-    $amount = (float)$pay['amount'];
-    $pay_month = date('Y-m', strtotime($pay['payment_date']));
-
-    $init_month($pay_month);
-    $monthly_stats[$pay_month]['cash_collected'] += $amount;
-
-    $prev_paid = $running_record_paid[$rid] ?? 0;
-    $new_paid = $prev_paid + $amount;
-    $running_record_paid[$rid] = $new_paid;
-
-    // Determine how much of this installment is pure profit above the cost
-    $payment_profit = 0;
-    $payment_cost_reimbursed = 0;
-
-    if ($new_paid > $cost) {
-        if ($prev_paid >= $cost) {
-            // Cost was already completed in an earlier payment, entire payment is pure profit!
-            $payment_profit = $amount;
-        } else {
-            // This payment completed the cost threshold!
-            $payment_cost_reimbursed = $cost - $prev_paid;
-            $payment_profit = $new_paid - $cost;
-        }
-    } else {
-        // Entire payment goes towards cost recovery
-        $payment_cost_reimbursed = $amount;
-    }
-
-    $monthly_stats[$pay_month]['received_profit'] += $payment_profit;
-    $monthly_stats[$pay_month]['cost_recovered'] += $payment_cost_reimbursed;
-
-    if ($payment_profit > 0) {
-        $monthly_stats[$pay_month]['clients_received'][] = [
-            'name'   => $pay['full_name'],
-            'amount' => $payment_profit,
-            'date'   => $pay['payment_date']
-        ];
-    }
-}
-
-// 2. Process all pending/expected profits based on Payment Due Date
-foreach ($raw_records as $r) {
-    $charge = (float)$r['charge_amount'];
-    $cost = (float)$r['actual_cost'];
-    $paid = (float)$r['total_paid'];
-    $total_deal_profit = max(0, $charge - $cost);
-    $deal_realized_profit = max(0, $paid - $cost);
-    $deal_pending_profit = max(0, $total_deal_profit - $deal_realized_profit);
-
-    if ($deal_pending_profit > 0) {
-        // Schedule it in the month when payment is due (Upcoming Expected Month)
-        $due_month = !empty($r['payment_due_date']) ? date('Y-m', strtotime($r['payment_due_date'])) : $current_month_key;
-        $init_month($due_month);
-
-        $monthly_stats[$due_month]['pending_profit'] += $deal_pending_profit;
-        $monthly_stats[$due_month]['clients_pending'][] = [
-            'name'     => $r['full_name'],
-            'amount'   => $deal_pending_profit,
-            'due_date' => $r['payment_due_date']
-        ];
-    }
-}
-
-// 3. For every month: Expected Profit = Received Profit + Pending Profit
-// ("Both will be same, but before receiving it is Expected, not completed")
-foreach ($monthly_stats as $m_key => &$m_data) {
-    $m_data['expected_profit'] = $m_data['received_profit'] + $m_data['pending_profit'];
-}
-unset($m_data);
-
-// Sort months descending (future / latest first)
-krsort($monthly_stats);
-
-// Quick KPIs for the cards
-$this_month_expected = $monthly_stats[$current_month_key]['expected_profit'] ?? 0;
-$this_month_received = $monthly_stats[$current_month_key]['received_profit'] ?? 0;
-$this_month_pending  = $monthly_stats[$current_month_key]['pending_profit'] ?? 0;
-
-$next_month_expected = $monthly_stats[$next_month_key]['expected_profit'] ?? 0;
-$next_month_received = $monthly_stats[$next_month_key]['received_profit'] ?? 0;
-$next_month_pending  = $monthly_stats[$next_month_key]['pending_profit'] ?? 0;
-
 // Fetch distinct company list for filter
 $comp_stmt = $db->query("SELECT DISTINCT company_name FROM qid_records WHERE company_name IS NOT NULL AND company_name != '' ORDER BY company_name ASC");
 $all_companies = $comp_stmt->fetchAll(PDO::FETCH_COLUMN);
@@ -335,85 +222,6 @@ include __DIR__ . '/includes/header.php';
     </div>
 </div>
 
-<!-- Monthly Profit Timing & Upcoming Forecast KPI Row -->
-<div class="row g-3 mb-4">
-    <!-- This Month Expected Profit -->
-    <div class="col-xl-3 col-sm-6">
-        <div class="card p-3 shadow-sm border-start border-4 border-warning h-100">
-            <div class="d-flex justify-content-between align-items-start">
-                <div>
-                    <div class="text-muted small text-uppercase fw-bold">This Month Expected Profit</div>
-                    <div class="fs-4 fw-bold text-dark mt-1"><?= format_currency($this_month_expected) ?></div>
-                    <div class="small text-muted">
-                        <i class="fa-regular fa-calendar me-1 text-warning"></i><?= date('F Y') ?> Total Target
-                    </div>
-                </div>
-                <div class="p-2 bg-warning-subtle text-warning-emphasis rounded">
-                    <i class="fa-solid fa-calendar-day fs-5"></i>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- This Month Received in Cash -->
-    <div class="col-xl-3 col-sm-6">
-        <div class="card p-3 shadow-sm border-start border-4 border-success h-100">
-            <div class="d-flex justify-content-between align-items-start">
-                <div>
-                    <div class="text-muted small text-uppercase fw-bold">This Month Received (Cash)</div>
-                    <div class="fs-4 fw-bold text-success mt-1"><?= format_currency($this_month_received) ?></div>
-                    <div class="small text-muted">
-                        <?php if ($this_month_pending > 0): ?>
-                            <span class="text-danger fw-semibold"><i class="fa-solid fa-clock me-1"></i><?= format_currency($this_month_pending) ?> still pending</span>
-                        <?php else: ?>
-                            <span class="text-success"><i class="fa-solid fa-circle-check me-1"></i>100% Collected</span>
-                        <?php endif; ?>
-                    </div>
-                </div>
-                <div class="p-2 bg-success-subtle text-success rounded">
-                    <i class="fa-solid fa-coins fs-5"></i>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- This Month Still Pending Collection -->
-    <div class="col-xl-3 col-sm-6">
-        <div class="card p-3 shadow-sm border-start border-4 border-danger h-100">
-            <div class="d-flex justify-content-between align-items-start">
-                <div>
-                    <div class="text-muted small text-uppercase fw-bold">This Month Still Pending</div>
-                    <div class="fs-4 fw-bold text-danger mt-1"><?= format_currency($this_month_pending) ?></div>
-                    <div class="small text-muted">
-                        <i class="fa-solid fa-hourglass-half text-danger me-1"></i>Awaiting collection this month
-                    </div>
-                </div>
-                <div class="p-2 bg-danger-subtle text-danger rounded">
-                    <i class="fa-solid fa-clock-rotate-left fs-5"></i>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- Next Month Upcoming Expected Profit -->
-    <div class="col-xl-3 col-sm-6">
-        <div class="card p-3 shadow-sm border-start border-4 border-info h-100 bg-info-subtle bg-opacity-10">
-            <div class="d-flex justify-content-between align-items-start">
-                <div>
-                    <div class="text-info-emphasis small text-uppercase fw-bold">Next Month Upcoming Profit</div>
-                    <div class="fs-4 fw-bold text-primary mt-1"><?= format_currency($next_month_expected) ?></div>
-                    <div class="small text-muted">
-                        <i class="fa-solid fa-calendar-plus me-1 text-info"></i><?= date('F Y', strtotime('+1 month')) ?> Forecast
-                    </div>
-                </div>
-                <div class="p-2 bg-info-subtle text-info rounded">
-                    <i class="fa-solid fa-calendar-arrow-up fs-5"></i>
-                </div>
-            </div>
-        </div>
-    </div>
-</div>
-
 <!-- Profit Realization Progress Bar -->
 <div class="card shadow-sm mb-4">
     <div class="card-body p-4">
@@ -478,119 +286,6 @@ include __DIR__ . '/includes/header.php';
                 <?php endif; ?>
             </div>
         </form>
-    </div>
-</div>
-
-<!-- Monthly Profit Forecast & Realized Cash Table -->
-<div class="card shadow-sm mb-4">
-    <div class="card-header-clean">
-        <h5>
-            <i class="fa-solid fa-calendar-days text-primary"></i>
-            <span>Monthly Profit Forecast & Realized Cash (Upcoming vs Completed)</span>
-        </h5>
-        <span class="badge bg-light text-dark border"><?= count($monthly_stats) ?> Month(s)</span>
-    </div>
-    <div class="card-body p-4 pb-0">
-        <div class="p-3 bg-light rounded-3 mb-3 border">
-            <div class="d-flex align-items-start gap-2">
-                <i class="fa-solid fa-circle-info text-primary mt-1"></i>
-                <div class="small text-muted">
-                    <strong>How Expected vs Received Profit Works:</strong> For any month, <strong>Expected Profit</strong> is the total profit scheduled to be collected based on payment due dates. Before collection it remains <strong>Expected (Not Completed)</strong>. Once the client pays and reimburses the government cost (e.g. 1,220 QR), that profit becomes <strong>Received in Cash</strong>!
-                </div>
-            </div>
-        </div>
-    </div>
-    <div class="card-body p-0">
-        <div class="table-responsive">
-            <table class="table table-custom align-middle mb-0">
-                <thead>
-                    <tr>
-                        <th>Month Period</th>
-                        <th>Expected Profit (Total)</th>
-                        <th>Received in Cash</th>
-                        <th>Pending to Receive</th>
-                        <th>Timeline Status</th>
-                        <th>Contributing Clients</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <?php foreach ($monthly_stats as $m_code => $m_data): 
-                        $is_current = ($m_code === $current_month_key);
-                        $is_next = ($m_code === $next_month_key);
-                        $is_past = ($m_code < $current_month_key);
-                        $is_future = ($m_code > $current_month_key);
-                    ?>
-                        <tr class="<?= $is_current ? 'table-warning bg-opacity-25' : ($is_next ? 'table-info bg-opacity-10' : '') ?>">
-                            <td>
-                                <div class="fw-bold text-dark fs-6">
-                                    <i class="fa-regular fa-calendar me-1 text-primary"></i> <?= htmlspecialchars($m_data['month_label']) ?>
-                                </div>
-                                <?php if ($is_current): ?>
-                                    <span class="badge bg-warning text-dark"><i class="fa-solid fa-calendar-day me-1"></i> Current Month</span>
-                                <?php elseif ($is_next): ?>
-                                    <span class="badge bg-info text-white"><i class="fa-solid fa-calendar-plus me-1"></i> Upcoming Next Month</span>
-                                <?php elseif ($is_future): ?>
-                                    <span class="badge bg-secondary text-white">Future Month</span>
-                                <?php else: ?>
-                                    <span class="badge bg-light text-muted border">Past Month</span>
-                                <?php endif; ?>
-                            </td>
-                            <td>
-                                <span class="fw-bold text-dark fs-6"><?= format_currency($m_data['expected_profit']) ?></span>
-                                <div class="small text-muted">Total target for month</div>
-                            </td>
-                            <td>
-                                <span class="fw-bold text-success fs-6">
-                                    <?= ($m_data['received_profit'] > 0) ? '+ ' . format_currency($m_data['received_profit']) : '0.00 ' . $currency ?>
-                                </span>
-                                <div class="small text-muted">Received in cash</div>
-                            </td>
-                            <td>
-                                <?php if ($m_data['pending_profit'] > 0): ?>
-                                    <span class="fw-bold text-danger fs-6"><?= format_currency($m_data['pending_profit']) ?></span>
-                                    <div class="small text-muted">Expected / Not yet received</div>
-                                <?php else: ?>
-                                    <span class="text-success small fw-semibold"><i class="fa-solid fa-circle-check me-1"></i>0.00 (All Received)</span>
-                                <?php endif; ?>
-                            </td>
-                            <td>
-                                <?php if ($m_data['expected_profit'] > 0 && $m_data['pending_profit'] <= 0): ?>
-                                    <span class="badge bg-success text-white">
-                                        <i class="fa-solid fa-check-double me-1"></i> 100% Completed
-                                    </span>
-                                <?php elseif ($is_current && $m_data['pending_profit'] > 0): ?>
-                                    <span class="badge bg-warning text-dark">
-                                        <i class="fa-solid fa-clock me-1"></i> In Progress (Due This Month)
-                                    </span>
-                                <?php elseif ($is_future && $m_data['pending_profit'] > 0): ?>
-                                    <span class="badge bg-primary-subtle text-primary border border-primary-subtle">
-                                        <i class="fa-solid fa-calendar-arrow-up me-1"></i> Upcoming Expected
-                                    </span>
-                                <?php elseif ($is_past && $m_data['pending_profit'] > 0): ?>
-                                    <span class="badge bg-danger text-white">
-                                        <i class="fa-solid fa-triangle-exclamation me-1"></i> Overdue Collections
-                                    </span>
-                                <?php else: ?>
-                                    <span class="badge bg-light text-muted border">No Collections</span>
-                                <?php endif; ?>
-                            </td>
-                            <td>
-                                <?php 
-                                $all_client_names = [];
-                                foreach ($m_data['clients_pending'] as $cp) {
-                                    $all_client_names[] = '<span class="badge bg-light text-dark border me-1 mb-1">' . htmlspecialchars($cp['name']) . ' (Due ' . format_date($cp['due_date'], 'd M') . ')</span>';
-                                }
-                                foreach ($m_data['clients_received'] as $cr) {
-                                    $all_client_names[] = '<span class="badge bg-success-subtle text-success border border-success-subtle me-1 mb-1"><i class="fa-solid fa-check me-1"></i>' . htmlspecialchars($cr['name']) . '</span>';
-                                }
-                                echo !empty($all_client_names) ? implode(' ', array_unique($all_client_names)) : '<span class="text-muted small">—</span>';
-                                ?>
-                            </td>
-                        </tr>
-                    <?php endforeach; ?>
-                </tbody>
-            </table>
-        </div>
     </div>
 </div>
 

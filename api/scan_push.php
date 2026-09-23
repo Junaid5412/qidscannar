@@ -164,7 +164,7 @@ if ($existing_record) {
         'expiry_formatted'  => format_date($enriched['expiry_date']),
         'expiry_status'     => $enriched['expiry_status'],
         'days_to_expiry'    => $enriched['days_to_expiry'],
-        'payment_due_date'  => $enriched['payment_due_date'] ? format_date($enriched['payment_due_date']) : 'Not specified',
+        
         'charge_amount'     => (float)$enriched['charge_amount'],
         'charge_formatted'  => format_currency($enriched['charge_amount']),
         'actual_cost'       => (float)$enriched['actual_cost'],

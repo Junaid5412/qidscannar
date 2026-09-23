@@ -46,7 +46,7 @@ if ($type === 'records') {
         'Expected Profit (QR)',
         'Total Paid (QR)',
         'Remaining Balance (QR)',
-        'Payment Due Date',
+        
         'Record Status',
         'Notes'
     ]);
@@ -68,7 +68,7 @@ if ($type === 'records') {
             number_format($enriched['expected_profit'], 2, '.', ''),
             number_format($enriched['total_paid'], 2, '.', ''),
             number_format($enriched['remaining_balance'], 2, '.', ''),
-            $enriched['payment_due_date'] ?? 'N/A',
+            
             $enriched['status'],
             $enriched['notes']
         ]);

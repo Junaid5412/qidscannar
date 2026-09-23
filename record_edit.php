@@ -46,7 +46,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (!isset($_POST['action']) || $_POST
     $company_name = trim($_POST['company_name'] ?? '');
     $job_title = trim($_POST['job_title'] ?? '');
     $nationality = trim($_POST['nationality'] ?? '');
-    $payment_due_date = !empty($_POST['payment_due_date']) ? $_POST['payment_due_date'] : null;
+    
     $charge_amount = (float)($_POST['charge_amount'] ?? 0);
     $actual_cost = (float)($_POST['actual_cost'] ?? 0);
     $status = $_POST['status'] ?? 'Active';
@@ -65,7 +65,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (!isset($_POST['action']) || $_POST
                     job_title = :job,
                     nationality = :nat,
                     expiry_date = :exp,
-                    payment_due_date = :due,
+                    
                     charge_amount = :charge,
                     actual_cost = :cost,
                     status = :status,
@@ -80,7 +80,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (!isset($_POST['action']) || $_POST
                 ':job'     => $job_title,
                 ':nat'     => $nationality,
                 ':exp'     => $expiry_date,
-                ':due'     => $payment_due_date,
+                
                 ':charge'  => $charge_amount,
                 ':cost'    => $actual_cost,
                 ':status'  => $status,

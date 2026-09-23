@@ -24,7 +24,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $company_name = trim($_POST['company_name'] ?? '');
     $job_title = trim($_POST['job_title'] ?? '');
     $nationality = trim($_POST['nationality'] ?? '');
-    $payment_due_date = !empty($_POST['payment_due_date']) ? $_POST['payment_due_date'] : null;
+    
     $charge_amount = (float)($_POST['charge_amount'] ?? 0);
     $actual_cost = (float)($_POST['actual_cost'] ?? 0);
     $status = $_POST['status'] ?? 'Active';
@@ -48,9 +48,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             $stmt = $db->prepare("
                 INSERT INTO qid_records 
-                (full_name, qid_number, phone_number, company_name, job_title, nationality, expiry_date, payment_due_date, charge_amount, actual_cost, status, notes)
+                (full_name, qid_number, phone_number, company_name, job_title, nationality, expiry_date,  charge_amount, actual_cost, status, notes)
                 VALUES 
-                (:name, :qid, :phone, :company, :job, :nat, :exp, :due, :charge, :cost, :status, :notes)
+                (:name, :qid, :phone, :company, :job, :nat, :exp,  :charge, :cost, :status, :notes)
             ");
             $stmt->execute([
                 ':name'    => $full_name,
@@ -60,7 +60,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 ':job'     => $job_title,
                 ':nat'     => $nationality,
                 ':exp'     => $expiry_date,
-                ':due'     => $payment_due_date,
+                ''     => $
                 ':charge'  => $charge_amount,
                 ':cost'    => $actual_cost,
                 ':status'  => $status,
@@ -210,7 +210,7 @@ include __DIR__ . '/includes/header.php';
 
                         <div class="col-md-6">
                             <label class="form-label">Payment Due Date</label>
-                            <input type="date" name="payment_due_date" class="form-control" value="<?= htmlspecialchars($_POST['payment_due_date'] ?? date('Y-m-d', strtotime('+7 days'))) ?>">
+                            <input type="date" name="" class="form-control" value="<?= htmlspecialchars($_POST[''] ?? date('Y-m-d', strtotime('+7 days'))) ?>">
                             <div class="form-text">Due date reminder will trigger on Dashboard for collection.</div>
                         </div>
 

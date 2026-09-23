@@ -223,14 +223,7 @@ include __DIR__ . '/includes/header.php';
                                         <?= $row['payment_badge'] ?>
                                     </div>
                                 </td>
-                                <td>
-                                    <?php if (!empty($row['payment_due_date'])): ?>
-                                        <div><?= format_date($row['payment_due_date']) ?></div>
-                                        <div class="mt-1"><?= $row['due_badge'] ?></div>
-                                    <?php else: ?>
-                                        <span class="text-muted small">—</span>
-                                    <?php endif; ?>
-                                </td>
+                                
                                 <td class="text-end">
                                     <div class="btn-group btn-group-sm">
                                         <a href="record_detail.php?id=<?= $row['id'] ?>" class="btn btn-outline-primary" title="View Full Profile & Installments">
