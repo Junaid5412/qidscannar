@@ -108,6 +108,34 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         exit;
     }
 
+    if ($action === 'save_bridge_link') {
+        $bridge_link = trim($_POST['bridge_link'] ?? '');
+
+        // The connector reads this file, so Settings is the only place the link
+        // is ever entered - no config file to edit on this PC.
+        $link_file = __DIR__ . '/data/bridge_link.txt';
+
+        if ($bridge_link === '') {
+            @unlink($link_file);
+            set_flash('success', 'Online bridge link cleared. The app will use the local Wi-Fi again.');
+        } elseif (!filter_var($bridge_link, FILTER_VALIDATE_URL)
+                  || !preg_match('#bridge\.php(/[a-f0-9]{16,}|\?k=[a-f0-9]{16,})#i', $bridge_link)) {
+            set_flash('danger', 'That does not look like a bridge link. Open your bridge file in a browser and copy the link it shows.');
+        } else {
+            if (!is_dir(__DIR__ . '/data')) {
+                @mkdir(__DIR__ . '/data', 0775, true);
+            }
+            if (@file_put_contents($link_file, $bridge_link) === false) {
+                set_flash('danger', 'Could not save the link - the data/ folder is not writable.');
+            } else {
+                set_flash('success', 'Bridge link saved. Now run tools\\qid_connect.bat and leave it open.');
+            }
+        }
+
+        header('Location: settings.php#mobileAppSection');
+        exit;
+    }
+
     if ($action === 'save_admin_account') {
         $user_id = (int)($_SESSION['qid_user_id'] ?? 0);
         $new_username = trim($_POST['username'] ?? '');
@@ -397,39 +425,57 @@ include __DIR__ . '/includes/header.php';
                                 The app re-detects it automatically on launch and whenever the phone switches Wi-Fi.
                             </div>
 
-                            <hr class="my-2">
-                            <div class="small mb-2" style="font-size: 0.75rem;">
-                                <span class="fw-bold text-dark"><i class="fa-solid fa-bolt text-success me-1"></i> Instant discovery (recommended)</span>
-                                <div class="text-muted">
-                                    Double-click <code>tools\start_discovery_daemon.bat</code> and leave the window open.
-                                    The phone then finds this PC in about <strong>4 milliseconds</strong> instead of probing
-                                    254 addresses. To start it with Windows, put a shortcut to it in
-                                    <code>shell:startup</code>.
-                                </div>
-                            </div>
-
-                            <div class="small" style="font-size: 0.75rem;">
-                                <span class="fw-bold text-dark"><i class="fa-solid fa-shield-halved text-warning me-1"></i> Phone can't find the PC?</span>
-                                <div class="text-muted mb-1">
-                                    Windows Firewall blocks Apache by default &mdash; this is the most common cause.
-                                    Right-click <code>tools\allow_wifi_access.bat</code> in the QID folder and choose
-                                    <strong>Run as administrator</strong> (one time only), or run this command in an
-                                    <strong>Administrator</strong> Command Prompt:
-                                </div>
-                                <div class="input-group input-group-sm">
-                                    <input type="text" class="form-control font-monospace bg-white" readonly
-                                           style="font-size: 0.7rem;"
-                                           id="firewallCmdInput"
-                                           value='netsh advfirewall firewall add rule name="XAMPP Apache (QID) HTTP" dir=in action=allow protocol=TCP localport=80,8080 profile=any remoteip=localsubnet'>
-                                    <button class="btn btn-outline-secondary" type="button" onclick="navigator.clipboard.writeText(document.getElementById('firewallCmdInput').value); this.innerText='Copied!'; setTimeout(()=>this.innerText='Copy', 1500);">Copy</button>
-                                </div>
-                                <div class="text-muted mt-1" style="font-size: 0.7rem;">
-                                    <code>remoteip=localsubnet</code> limits this to your own Wi-Fi &mdash; it does not expose the PC to the internet.
-                                </div>
+                            <div class="small text-muted mt-1" style="font-size: 0.72rem;">
+                                Works only when the phone and this PC are on the same Wi-Fi <em>and</em> that Wi-Fi
+                                allows devices to talk to each other. If it does not, use the bridge below.
                             </div>
                         </div>
                     </div>
                 </div>
+
+                <?php
+                    $bridge_link_file  = __DIR__ . '/data/bridge_link.txt';
+                    $saved_bridge_link = file_exists($bridge_link_file)
+                        ? trim((string) @file_get_contents($bridge_link_file)) : '';
+                ?>
+                <hr class="my-4">
+
+                <h6 class="fw-bold text-dark mb-1">
+                    <i class="fa-solid fa-link text-primary me-1"></i>
+                    Online Bridge Link <span class="text-muted fw-normal">(use when Wi-Fi does not work)</span>
+                </h6>
+                <p class="text-muted small mb-3">
+                    Some office and guest Wi-Fi networks block phones from reaching PCs directly.
+                    The bridge routes the app through your website instead. Your database and all
+                    records stay on this PC &mdash; only the request passes through.
+                </p>
+
+                <form method="POST" action="settings.php">
+                    <input type="hidden" name="action" value="save_bridge_link">
+                    <div class="input-group">
+                        <span class="input-group-text bg-light"><i class="fa-solid fa-globe text-muted"></i></span>
+                        <input type="text" name="bridge_link" class="form-control font-monospace"
+                               style="font-size: 0.82rem;"
+                               placeholder="https://yourdomain.com/bridge.php?k=..."
+                               value="<?= htmlspecialchars($saved_bridge_link) ?>">
+                        <button type="submit" class="btn btn-primary">
+                            <i class="fa-solid fa-check me-1"></i> Save
+                        </button>
+                    </div>
+                    <div class="form-text">
+                        Upload <code>bridge/bridge.php</code> to your hosting, open it in a browser,
+                        and copy the link it shows. Paste it here, then paste the
+                        <strong>same link</strong> into the app. Leave blank to go back to local Wi-Fi.
+                    </div>
+                </form>
+
+                <?php if ($saved_bridge_link !== ''): ?>
+                    <div class="alert alert-info mt-3 mb-0 py-2 px-3 small">
+                        <i class="fa-solid fa-circle-info me-1"></i>
+                        Link saved. Now run <code>tools\qid_connect.bat</code> on this PC and leave the
+                        window open &mdash; that is what keeps this PC reachable.
+                    </div>
+                <?php endif; ?>
             </div>
         </div>
 

@@ -1,134 +1,99 @@
 # QID Online Bridge
 
-Lets the mobile app reach your XAMPP PC **through your own hosting**, without the
-phone ever connecting to the PC directly.
-
-Use this when the phone and PC cannot talk on the local network — Wi-Fi client
-isolation, guest networks, staff working from a different building, or the PC
-sitting behind a router you cannot configure.
+One file. One link. Use it when the phone cannot reach the PC over Wi-Fi —
+office or guest networks that block device-to-device traffic, or staff working
+from somewhere else entirely.
 
 ```
-  phone  ──POST /api/scan_push.php──▶  yourdomain.com/qidbridge  ◀──long poll──  PC agent
-                                              (relay)                                │
-                                                                  http://localhost/QID
-                                                                   MySQL + all records
+ phone ──request──▶ bridge.php on your hosting ◀──waiting── PC connector
+                                                                  │
+                                                  http://localhost/QID
+                                                   MySQL + all records
 ```
 
-Both sides only ever make **outbound** connections, which is why this works when
-nothing else does. Your database, uploads and records never leave the PC. The
-bridge holds one request and its reply for the second it takes to pass them on,
-then deletes them.
+Neither side accepts an incoming connection — both dial **out** — which is why
+this works when nothing on the local network does.
 
-**Be aware:** scan traffic does pass *through* your hosting in transit, so the host
-can see it. If that is not acceptable, use a mesh VPN such as Tailscale instead,
-which is encrypted end to end.
-
----
-
-## What you need
-
-Ordinary shared cPanel hosting. PHP 7.0+, a writable folder. No database, no cron,
-no shell access.
+Your database, uploads and records stay on the PC. The bridge holds one request
+and its reply for the second it takes to pass them along, then deletes them.
 
 ---
 
 ## Setup
 
-### 1. Generate a key
+**1. Upload one file**
 
-On the XAMPP PC:
+Put `bridge.php` anywhere on your hosting, e.g. `public_html/qidbridge/bridge.php`.
+Nothing else — no config file, no `.htaccess`, no folders to create.
 
-```bash
-F:\xampp\php\php.exe -r "echo bin2hex(random_bytes(24)), PHP_EOL;"
+**2. Open it in a browser**
+
+Go to `https://yourdomain.com/qidbridge/bridge.php`. It shows **your link**:
+
+```
+https://yourdomain.com/qidbridge/bridge.php?k=016b693b5e0f7835b535937c
 ```
 
-Copy the string it prints. It is the shared secret that proves to the bridge that
-your PC — and only your PC — may pick up jobs.
+Copy it. The key is generated once, by the bridge itself — there is nothing for
+you to invent or keep in sync.
 
-### 2. Upload the bridge
+**3. Paste it in QID Settings**
 
-Upload this whole `bridge/` folder to your hosting, for example to
-`/public_html/qidbridge`, so it answers at `https://yourdomain.com/qidbridge`.
+On the PC: QID → **Settings** → **Online Bridge Link** → paste → Save.
 
-On the host, copy `bridge_config.sample.php` to `bridge_config.php` and set the key:
+**4. Run the connector**
 
-```php
-define('BRIDGE_KEY', 'paste-the-key-here');
-```
-
-Then in cPanel File Manager set the `jobs/` folder permissions to **0775**.
-
-Check it by opening `https://yourdomain.com/qidbridge` in a browser. You should see:
-
-```json
-{"status":"ok","app":"qid_bridge","agent_online":false}
-```
-
-`agent_online: false` is expected until step 3.
-
-### 3. Connect the PC
-
-On the PC, copy `tools/bridge_config_agent.sample.php` to
-`tools/bridge_config_agent.php` and fill in:
-
-```php
-define('BRIDGE_URL',     'https://yourdomain.com/qidbridge');
-define('BRIDGE_KEY',     'paste-the-same-key-here');
-define('LOCAL_BASE_URL', 'http://localhost/QID');
-```
-
-Then run `tools\start_bridge_agent.bat` and leave the window open. It should say:
+Double-click `tools\qid_connect.bat` and leave the window open. This is what
+keeps the PC reachable. It should say:
 
 ```
 Local QID system OK
 Bridge reachable
-Waiting for requests...
+Waiting for the app...
 ```
 
-Reload the bridge URL in a browser — `agent_online` is now `true`.
+To start it with Windows: `Win+R` → `shell:startup` → put a shortcut there.
 
-To start it automatically with Windows, put a shortcut to
-`start_bridge_agent.bat` in `shell:startup`.
+**5. Paste the same link in the app**
 
-### 4. Point the app at it
-
-In the app's **Server URL**, enter `https://yourdomain.com/qidbridge` and log in.
-
-The app treats any address that is not a bare IP as fixed: it will not scan the
-Wi-Fi and will never overwrite it when the phone changes network.
+App → **Server URL** → paste the same link → log in.
 
 ---
 
-## Checking it works
+## Checking it
 
-Every relayed request is logged in the agent window:
+Reload the bridge page in a browser. It shows **PC connector: CONNECTED** once
+step 4 is running.
+
+Every relayed request is logged in the connector window:
 
 ```
-[18:13:03] POST /api/scan_push.php -> 200 (21ms)
+[18:32:55] GET /api/discovery.php -> 200 (58ms)
 ```
 
-Expect 200–500ms per scan over the internet, against ~20ms on the LAN. Fine for
-scanning; the local UDP discovery is still faster when both are on the same Wi-Fi.
+Expect 200–500ms per scan over the internet. The local Wi-Fi path is faster when
+it works, and the app still prefers it automatically.
 
 ---
 
 ## Security
 
-- Only `/api/*.php` paths are relayed. The admin site is **never** reachable
-  through the bridge, so a leaked bridge URL cannot open the web portal.
-- `bridge_config.php` and `jobs/` are blocked from the web by `.htaccess`.
-- The agent key is compared with `hash_equals`, so it cannot be guessed one
-  character at a time.
-- The app's own login and token auth still applies on top of all this.
-- Both config files are git-ignored so your key is never committed.
+- Only `/api/*.php` is relayed. The admin portal is **never** reachable through
+  the bridge, so a leaked link cannot open your web pages.
+- A wrong or missing key is refused.
+- The app's own login and token auth still applies on top.
+- Keep the link private — it identifies your bridge.
+- Traffic does pass *through* your hosting in transit, so the host could see it.
+  If that matters, use a mesh VPN such as Tailscale instead, which is encrypted
+  end to end.
 
 ## Troubleshooting
 
-| Symptom | Cause |
+| What you see | What it means |
 |---|---|
-| `agent_online: false` | The agent is not running on the PC, or the two keys differ |
-| `503 The QID PC is not connected` | Same as above |
-| `504 did not answer in time` | XAMPP Apache is stopped, or the PC lost internet |
-| `403 Invalid agent key` | `BRIDGE_KEY` differs between host and PC |
-| `500 jobs/ is not writable` | Set `jobs/` to 0775 in cPanel |
-| App jumps back to a LAN IP | You are on an old build; update the app |
+| `PC connector: NOT CONNECTED` | `qid_connect.bat` is not running on the PC |
+| `503 The QID PC is not connected` | Same |
+| `Wrong bridge link` | The saved link does not match the bridge; re-copy it |
+| `504 did not answer in time` | XAMPP Apache stopped, or the PC lost internet |
+| `cannot write next to itself` | Set the bridge folder to 0755 in File Manager |
+| App can't connect, browser can | Check you pasted the **whole** link including `?k=...` |

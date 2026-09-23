@@ -2,38 +2,67 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:http/http.dart' as http;
-import 'network_service.dart';
 import 'storage_service.dart';
 
+/// Talks to the QID system at whichever address is configured.
+///
+/// The app no longer searches the local network for the PC. It connects to one
+/// fixed address - the online bridge - which works on any Wi-Fi and on mobile
+/// data, so there is nothing to detect and nothing to go stale.
 class ApiService {
-  static Future<Map<String, dynamic>> testConnection(String serverUrl) async {
-    final baseUrl = StorageService.cleanUrl(serverUrl);
-    final uri = Uri.parse('$baseUrl/api/app_login.php');
+  /// Requests through the bridge cross the internet twice (phone to host, host
+  /// to PC), so budgets are generous compared with a direct LAN call.
+  static const Duration _checkTimeout = Duration(seconds: 20);
+  static const Duration _loginTimeout = Duration(seconds: 25);
+  static const Duration _scanTimeout = Duration(seconds: 25);
+
+  /// Confirms the configured address reaches a live QID system.
+  ///
+  /// Reports the PC's own name on success, which is what makes this useful:
+  /// it proves the request travelled all the way to the right machine rather
+  /// than merely reaching the hosting.
+  static Future<Map<String, dynamic>> checkServer([String? serverUrl]) async {
+    final baseUrl = StorageService.cleanUrl(
+      serverUrl ?? await StorageService.getServerUrl(),
+    );
 
     try {
       final response = await http
-          .post(uri, body: {})
-          .timeout(const Duration(seconds: 6));
+          .get(Uri.parse(StorageService.apiUrl(baseUrl, '/api/discovery.php')))
+          .timeout(_checkTimeout);
 
-      // 200, 400, or 401 proves the PHP endpoint is responding
-      if (response.statusCode == 200 ||
-          response.statusCode == 400 ||
-          response.statusCode == 401) {
-        return {'success': true, 'message': 'Server is online & reachable!'};
-      } else {
-        return {
-          'success': false,
-          'message': 'Server returned HTTP ${response.statusCode}'
-        };
+      final dynamic data = jsonDecode(response.body);
+
+      if (data is Map && data['app'] == 'qid_scanner') {
+        final host = data['hostname'] ?? 'the QID PC';
+        return {'success': true, 'message': 'Connected to $host.'};
       }
+
+      // The bridge answers in the app's own JSON shape when it cannot hand the
+      // request on, so its explanation is the most useful thing to show.
+      if (data is Map && data['message'] != null) {
+        return {'success': false, 'message': data['message'].toString()};
+      }
+
+      return {
+        'success': false,
+        'message': 'That address answered, but it is not a QID server '
+            '(HTTP ${response.statusCode}).'
+      };
     } on SocketException catch (e) {
-      return {'success': false, 'message': 'Network error: ${e.message}'};
+      return {'success': false, 'message': 'No internet or wrong address: ${e.message}'};
     } on TimeoutException {
-      return {'success': false, 'message': 'Connection timed out (6s).'};
+      return {'success': false, 'message': 'The server did not answer in time.'};
+    } on FormatException {
+      return {'success': false, 'message': 'That address did not return QID data. Check the link.'};
     } catch (e) {
       return {'success': false, 'message': 'Cannot reach server: $e'};
     }
   }
+
+  /// Kept for the login screen's own wording.
+  static Future<Map<String, dynamic>> testConnection(String serverUrl) =>
+      checkServer(serverUrl);
 
   static Future<Map<String, dynamic>> login({
     required String serverUrl,
@@ -41,50 +70,45 @@ class ApiService {
     required String password,
   }) async {
     final baseUrl = StorageService.cleanUrl(serverUrl);
-    final uri = Uri.parse('$baseUrl/api/app_login.php');
 
     try {
-      final response = await http.post(uri, body: {
-        'username': username.trim(),
-        'password': password.trim(),
-        'device_name': Platform.isIOS ? 'Apple iPhone' : 'Android Device',
-      }).timeout(const Duration(seconds: 8));
+      final response = await http.post(
+        Uri.parse(StorageService.apiUrl(baseUrl, '/api/app_login.php')),
+        body: {
+          'username': username.trim(),
+          'password': password.trim(),
+          'device_name': Platform.isIOS ? 'Apple iPhone' : 'Android Device',
+        },
+      ).timeout(_loginTimeout);
 
       final data = jsonDecode(response.body) as Map<String, dynamic>;
+
       if (response.statusCode == 200 && data['success'] == true) {
-        final token = data['token'] as String;
         final user = data['user'] as Map<String, dynamic>;
-        final company = data['company_name'] as String?;
-        final currency = data['currency'] as String?;
 
         await StorageService.saveSession(
           serverUrl: baseUrl,
-          token: token,
+          token: data['token'] as String,
           userId: user['id'] as int,
           username: user['username'] as String,
           fullName: user['full_name'] as String,
-          company: company,
-          currency: currency,
+          company: data['company_name'] as String?,
+          currency: data['currency'] as String?,
         );
 
-        // Pin this URL to the Wi-Fi network we are on, so rejoining it later
-        // reconnects instantly instead of triggering a scan.
-        final networkKey = await NetworkService.currentNetworkKey();
-        if (networkKey != null) {
-          await StorageService.rememberServerForNetwork(networkKey, baseUrl);
-        }
-
         return {'success': true, 'data': data};
-      } else {
-        return {
-          'success': false,
-          'message': data['message'] ?? 'Authentication rejected.'
-        };
       }
+
+      return {
+        'success': false,
+        'message': data['message'] ?? 'Authentication rejected.'
+      };
     } on SocketException catch (e) {
-      return {'success': false, 'message': 'Network unreachable: ${e.message}'};
+      return {'success': false, 'message': 'No internet: ${e.message}'};
     } on TimeoutException {
-      return {'success': false, 'message': 'Login request timed out.'};
+      return {'success': false, 'message': 'Login timed out. Is the PC connector running?'};
+    } on FormatException {
+      return {'success': false, 'message': 'The server did not return a valid response.'};
     } catch (e) {
       return {'success': false, 'message': 'Login failed: $e'};
     }
@@ -96,95 +120,47 @@ class ApiService {
     Map<String, String> cardData = const {},
   }) async {
     final token = await StorageService.getAuthToken();
-    var baseUrl = await StorageService.getServerUrl();
+    final baseUrl = await StorageService.getServerUrl();
 
     if (baseUrl.isEmpty || token.isEmpty) {
-      return {'success': false, 'message': 'No active session or server URL.'};
+      return {'success': false, 'message': 'No active session. Please log in again.'};
     }
 
-    final requestBody = {
+    final body = {
       'qid_number': qidNumber.trim(),
       'scan_type': scanType,
       'device_name': Platform.isIOS ? 'Apple iPhone' : 'Android Device',
-      'auth_token': token, // Fallback parameter
+      'auth_token': token, // fallback for servers that drop the header
     };
 
     // Inject OCR extracted fields
-    if (cardData.containsKey('name')) requestBody['card_data[name]'] = cardData['name']!;
-    if (cardData.containsKey('nationality')) requestBody['card_data[nationality]'] = cardData['nationality']!;
-    if (cardData.containsKey('job')) requestBody['card_data[job]'] = cardData['job']!;
-    if (cardData.containsKey('expiry')) requestBody['card_data[expiry]'] = cardData['expiry']!;
+    if (cardData.containsKey('name')) body['card_data[name]'] = cardData['name']!;
+    if (cardData.containsKey('nationality')) body['card_data[nationality]'] = cardData['nationality']!;
+    if (cardData.containsKey('job')) body['card_data[job]'] = cardData['job']!;
+    if (cardData.containsKey('expiry')) body['card_data[expiry]'] = cardData['expiry']!;
 
     try {
-      return await _postScan(baseUrl, token, requestBody);
+      final response = await http.post(
+        Uri.parse(StorageService.apiUrl(baseUrl, '/api/scan_push.php')),
+        headers: {
+          'Authorization': 'Bearer $token',
+          'X-Auth-Token': token,
+        },
+        body: body,
+      ).timeout(_scanTimeout);
+
+      return jsonDecode(response.body) as Map<String, dynamic>;
     } on SocketException catch (e) {
-      // The PC very likely picked up a new DHCP address (different Wi-Fi, router
-      // reboot, lease renewal). Relocate it and retry once before giving up -
-      // this is what keeps a scanning session alive without a re-login.
-      final relocated = await _relocateServer();
-      if (relocated == null) {
-        return {
-          'success': false,
-          'message': 'Cannot reach server: ${e.message}\n'
-              'Server not found on this Wi-Fi - open Settings and tap Re-Detect.'
-        };
-      }
-      baseUrl = relocated;
+      return {'success': false, 'message': 'No internet: ${e.message}'};
     } on TimeoutException {
-      final relocated = await _relocateServer();
-      if (relocated == null) {
-        return {'success': false, 'message': 'Scan push timed out.'};
-      }
-      baseUrl = relocated;
+      return {
+        'success': false,
+        'message': 'Sync timed out. Check the PC is on and the connector is running.'
+      };
+    } on FormatException {
+      return {'success': false, 'message': 'The server returned an unreadable response.'};
     } catch (e) {
-      return {'success': false, 'message': 'Sync push failed: $e'};
+      return {'success': false, 'message': 'Sync failed: $e'};
     }
-
-    // Retry against the freshly discovered address.
-    try {
-      final result = await _postScan(baseUrl, token, requestBody);
-      if (result['success'] == true) {
-        result['reconnected_url'] = baseUrl;
-      }
-      return result;
-    } on SocketException catch (e) {
-      return {'success': false, 'message': 'Cannot reach server: ${e.message}'};
-    } on TimeoutException {
-      return {'success': false, 'message': 'Scan push timed out.'};
-    } catch (e) {
-      return {'success': false, 'message': 'Sync push failed: $e'};
-    }
-  }
-
-  static Future<Map<String, dynamic>> _postScan(
-    String baseUrl,
-    String token,
-    Map<String, String> body,
-  ) async {
-    final response = await http.post(
-      Uri.parse('$baseUrl/api/scan_push.php'),
-      headers: {
-        'Authorization': 'Bearer $token',
-        'X-Auth-Token': token,
-      },
-      body: body,
-    ).timeout(const Duration(seconds: 8));
-
-    return jsonDecode(response.body) as Map<String, dynamic>;
-  }
-
-  /// Re-runs discovery after a network failure and persists the new address.
-  static Future<String?> _relocateServer() async {
-    return NetworkService.ensureServerUrl(force: true);
-  }
-
-  /// Automatically discovers the QID server on the local Wi-Fi subnet.
-  /// Returns the detected server URL or null.
-  /// [onProgress] receives live diagnostic messages shown to the user.
-  static Future<String?> discoverLocalServer({
-    Function(String status)? onProgress,
-  }) async {
-    final info = await NetworkService.discover(onProgress: onProgress);
-    return info?.url;
   }
 }

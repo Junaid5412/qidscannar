@@ -20,7 +20,5 @@ mobile_app/.idea/
 *.aab
 
 # Bridge secrets (never commit)
-bridge/bridge_config.php
-tools/bridge_config_agent.php
-bridge/jobs/*
-!bridge/jobs/.htaccess
+data/bridge_link.txt
+bridge/qid_bridge_data/

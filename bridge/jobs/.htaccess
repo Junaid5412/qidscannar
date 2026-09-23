@@ -1,5 +1,0 @@
-# In-flight relay payloads. Never served over the web.
-Options -Indexes
-<FilesMatch ".*">
-    Require all denied
-</FilesMatch>
