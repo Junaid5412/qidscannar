@@ -221,11 +221,12 @@ function get_dashboard_stats() {
 
     // Records with pending balance count (Unpaid/Partial)
     $unpaid_stmt = $db->query("
-        SELECT r.id
+        SELECT r.id,
+               (r.charge_amount - COALESCE(SUM(p.amount), 0)) AS balance_remaining
         FROM qid_records r
         LEFT JOIN payments p ON p.qid_record_id = r.id
-        GROUP BY r.id
-        HAVING (r.charge_amount - COALESCE(SUM(p.amount), 0)) > 0
+        GROUP BY r.id, r.charge_amount
+        HAVING balance_remaining > 0
     ");
     $unpaid_count = $unpaid_stmt->rowCount();
 
@@ -275,12 +276,14 @@ function get_expiry_reminders($limit = 10) {
 function get_pending_payment_records($limit = 10) {
     $db = getDB();
     $stmt = $db->prepare("
-        SELECT r.*, COALESCE(SUM(p.amount), 0) AS total_paid
+        SELECT r.*, 
+               COALESCE(SUM(p.amount), 0) AS total_paid,
+               (r.charge_amount - COALESCE(SUM(p.amount), 0)) AS balance_remaining
         FROM qid_records r
         LEFT JOIN payments p ON p.qid_record_id = r.id
         GROUP BY r.id
-        HAVING (r.charge_amount - total_paid) > 0
-        ORDER BY (r.charge_amount - total_paid) DESC
+        HAVING balance_remaining > 0
+        ORDER BY balance_remaining DESC
         LIMIT :limit
     ");
     $stmt->bindValue(':limit', $limit, PDO::PARAM_INT);
