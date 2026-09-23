@@ -154,6 +154,97 @@ jobs:
           cd ../../../..
           ls -lh ios_output
 
+      # ----------------------------------------------------------------
+      # Sign the build so it can actually be installed on a device.
+      #
+      # iOS refuses any app without a code signature and an embedded
+      # provisioning profile, so the unsigned IPA above is only useful as an
+      # input to this step. Re-signing the built .app is used rather than
+      # letting Xcode archive with signing, because it needs no signing
+      # configuration inside the project and works the same every run.
+      #
+      # The whole step is skipped when the secrets are absent, so the workflow
+      # still produces the unsigned artifact for anyone without certificates.
+      # ----------------------------------------------------------------
+      - name: Sign iOS app
+        id: sign
+        env:
+          IOS_CERT_P12_BASE64: ${{ secrets.IOS_CERT_P12_BASE64 }}
+          IOS_CERT_PASSWORD: ${{ secrets.IOS_CERT_PASSWORD }}
+          IOS_PROVISION_BASE64: ${{ secrets.IOS_PROVISION_BASE64 }}
+        run: |
+          set -eo pipefail
+
+          if [ -z "$IOS_CERT_P12_BASE64" ] || [ -z "$IOS_PROVISION_BASE64" ]; then
+            echo "::warning::iOS signing secrets not set - producing an UNSIGNED build only."
+            echo "signed=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          CERT="$RUNNER_TEMP/cert.p12"
+          PROFILE="$RUNNER_TEMP/profile.mobileprovision"
+          KEYCHAIN="$RUNNER_TEMP/build.keychain"
+          KEYCHAIN_PASS="$(uuidgen)"
+
+          echo "$IOS_CERT_P12_BASE64" | base64 --decode > "$CERT"
+          echo "$IOS_PROVISION_BASE64" | base64 --decode > "$PROFILE"
+
+          # A dedicated keychain keeps the key off the runner's login keychain
+          # and is thrown away with the machine.
+          security create-keychain -p "$KEYCHAIN_PASS" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PASS" "$KEYCHAIN"
+          security import "$CERT" -P "$IOS_CERT_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN"
+          security list-keychain -d user -s "$KEYCHAIN"
+          # Without this, codesign blocks on a GUI password prompt that can
+          # never be answered on a headless runner.
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASS" "$KEYCHAIN" >/dev/null
+
+          IDENTITY="$(security find-identity -v -p codesigning "$KEYCHAIN" | head -n 1 | awk -F'"' '{print $2}')"
+          if [ -z "$IDENTITY" ]; then
+            echo "::error::No codesigning identity found in the supplied .p12."
+            exit 1
+          fi
+          echo "Signing identity: $IDENTITY"
+
+          # Entitlements must come from the profile itself; inventing them causes
+          # a mismatch that iOS rejects at install time.
+          security cms -D -i "$PROFILE" > "$RUNNER_TEMP/profile.plist"
+          /usr/libexec/PlistBuddy -x -c 'Print :Entitlements' "$RUNNER_TEMP/profile.plist" > "$RUNNER_TEMP/entitlements.plist"
+
+          echo "Profile: $(/usr/libexec/PlistBuddy -c 'Print :Name' "$RUNNER_TEMP/profile.plist")"
+          echo "Devices in profile: $(/usr/libexec/PlistBuddy -c 'Print :ProvisionedDevices' "$RUNNER_TEMP/profile.plist" 2>/dev/null | grep -c . || echo 'none (not ad-hoc)')"
+
+          cd mobile_app/build/ios/iphoneos
+          rm -rf Payload
+          mkdir -p Payload
+          cp -R Runner.app Payload/
+          APP="Payload/Runner.app"
+
+          cp "$PROFILE" "$APP/embedded.mobileprovision"
+
+          # Nested code must be signed before the bundle that contains it,
+          # otherwise sealing the outer bundle invalidates the inner signatures.
+          if [ -d "$APP/Frameworks" ]; then
+            find "$APP/Frameworks" -maxdepth 1 \( -name "*.framework" -o -name "*.dylib" \) -print0 |
+              while IFS= read -r -d '' item; do
+                echo "  signing $(basename "$item")"
+                codesign --force --timestamp=none --sign "$IDENTITY" "$item"
+              done
+          fi
+
+          codesign --force --timestamp=none --sign "$IDENTITY" \
+            --entitlements "$RUNNER_TEMP/entitlements.plist" "$APP"
+
+          codesign --verify --deep --strict --verbose=2 "$APP"
+
+          zip -r -y ../../../../ios_output/qid-scanner-signed.ipa Payload >/dev/null
+          rm -rf Payload
+
+          cd ../../../..
+          ls -lh ios_output
+          echo "signed=true" >> $GITHUB_OUTPUT
+
       - name: Upload iOS Application Artifact
         uses: actions/upload-artifact@v4
         with:
@@ -161,4 +252,6 @@ jobs:
           path: |
             ios_output/qid-scanner-ios-app.zip
             ios_output/qid-scanner-unsigned.ipa
+            ios_output/qid-scanner-signed.ipa
+          if-no-files-found: warn
           retention-days: 30
