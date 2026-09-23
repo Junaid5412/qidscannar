@@ -174,6 +174,51 @@ function enrich_qid_record($record) {
         $record['expiry_badge'] = '<span class="badge bg-success-subtle text-success border border-success-subtle"><i class="fa-solid fa-shield-check me-1"></i>Valid (' . $days_to_expiry . 'd)</span>';
     }
 
+    return $record;
+}
+
+/**
+ * Fetch payments for a specific QID
+ */
+function get_qid_payments($record_id) {
+    $db = getDB();
+    $stmt = $db->prepare("
+        SELECT * FROM payments 
+        WHERE qid_record_id = :id 
+        ORDER BY payment_date DESC, payment_time DESC, id DESC
+    ");
+    $stmt->execute([':id' => $record_id]);
+    return $stmt->fetchAll();
+}
+
+/**
+ * Dashboard Overall Statistics
+ */
+function get_dashboard_stats() {
+    $db = getDB();
+    $alert_expiry_days = (int)get_setting('expiry_alert_days', 30);
+    $alert_due_days = (int)get_setting('due_alert_days', 7);
+
+    // Totals query
+    $stmt = $db->query("
+        SELECT 
+            COUNT(r.id) AS total_records,
+            COALESCE(SUM(r.charge_amount), 0) AS total_receivable,
+            COALESCE(SUM(r.actual_cost), 0) AS total_cost,
+            SUM(CASE WHEN r.expiry_date < CURDATE() THEN 1 ELSE 0 END) AS expired_count,
+            SUM(CASE WHEN r.expiry_date >= CURDATE() AND r.expiry_date <= DATE_ADD(CURDATE(), INTERVAL {$alert_expiry_days} DAY) THEN 1 ELSE 0 END) AS expiring_count
+        FROM qid_records r
+    ");
+    $stats = $stmt->fetch();
+
+    // Total Payments Received
+    $pay_stmt = $db->query("SELECT COALESCE(SUM(amount), 0) AS total_received FROM payments");
+    $pay_res = $pay_stmt->fetch();
+
+    $total_receivable = (float)$stats['total_receivable'];
+    $total_received = (float)$pay_res['total_received'];
+    $total_cost = (float)$stats['total_cost'];
+
     // Overdue / Due payments count
     $due_stmt = $db->query("
         SELECT r.id, r.charge_amount, r.payment_due_date, COALESCE(SUM(p.amount), 0) as paid
@@ -195,8 +240,7 @@ function enrich_qid_record($record) {
         'total_profit'        => ($total_receivable - $total_cost),
         'expired_count'       => (int)$stats['expired_count'],
         'expiring_count'      => (int)$stats['expiring_count'],
-        'due_payments_count'  => $due_count
-    ];
+        ];
 }
 
 /**

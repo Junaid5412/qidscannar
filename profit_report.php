@@ -154,7 +154,7 @@ include __DIR__ . '/includes/header.php';
 <!-- Primary Profit KPI Summary Row -->
 <div class="row g-3 mb-4">
     <!-- Total Billed / Revenue -->
-    <div class="col-xl-3 col-sm-6">
+    <div class="col-xl-4 col-sm-12">
         <div class="kpi-card kpi-primary">
             <div class="d-flex justify-content-between align-items-start">
                 <div>
@@ -170,7 +170,7 @@ include __DIR__ . '/includes/header.php';
     </div>
 
     <!-- Government & Processing Cost -->
-    <div class="col-xl-3 col-sm-6">
+    <div class="col-xl-4 col-sm-12">
         <div class="kpi-card kpi-danger">
             <div class="d-flex justify-content-between align-items-start">
                 <div>
@@ -185,64 +185,19 @@ include __DIR__ . '/includes/header.php';
         </div>
     </div>
 
-    <!-- Net Expected Profit -->
-    <div class="col-xl-3 col-sm-6">
-        <div class="kpi-card kpi-success">
-            <div class="d-flex justify-content-between align-items-start">
-                <div>
-                    <div class="kpi-title">Net Expected Profit</div>
-                    <div class="kpi-value text-success"><?= format_currency($total_profit) ?></div>
-                    <div class="kpi-sub">
-                        <i class="fa-solid fa-arrow-trend-up text-success me-1"></i><strong><?= $overall_margin ?>%</strong> overall profit margin
-                    </div>
-                </div>
-                <div class="kpi-icon bg-success-subtle text-success">
-                    <i class="fa-solid fa-sack-dollar"></i>
-                </div>
-            </div>
-        </div>
-    </div>
-
     <!-- Realized Cash Profit -->
-    <div class="col-xl-3 col-sm-6">
+    <div class="col-xl-4 col-sm-12">
         <div class="kpi-card kpi-purple">
             <div class="d-flex justify-content-between align-items-start">
                 <div>
                     <div class="kpi-title">Realized Cash Profit</div>
                     <div class="kpi-value text-dark"><?= format_currency($realized_profit_total) ?></div>
-                    <div class="kpi-sub text-muted">
-                        Pending to collect: <?= format_currency($pending_profit) ?>
-                    </div>
+                    
                 </div>
                 <div class="kpi-icon bg-info-subtle text-info">
                     <i class="fa-solid fa-hand-holding-dollar"></i>
                 </div>
             </div>
-        </div>
-    </div>
-</div>
-
-<!-- Profit Realization Progress Bar -->
-<div class="card shadow-sm mb-4">
-    <div class="card-body p-4">
-        <div class="d-flex justify-content-between align-items-center mb-2">
-            <div>
-                <span class="fw-bold text-dark">Profit Realization Status</span>
-                <span class="text-muted small ms-2">(Realized in Cash vs Awaiting Client Payment)</span>
-            </div>
-            <div class="fw-bold text-success">
-                <?php 
-                $profit_collected_pct = ($total_profit > 0) ? round(($realized_profit_total / $total_profit) * 100, 1) : 0;
-                ?>
-                <?= $profit_collected_pct ?>% Realized in Cash
-            </div>
-        </div>
-        <div class="progress" style="height: 12px; border-radius: 6px; background-color: #f1f5f9;">
-            <div class="progress-bar bg-success progress-bar-striped" role="progressbar" style="width: <?= $profit_collected_pct ?>%" aria-valuenow="<?= $profit_collected_pct ?>" aria-valuemin="0" aria-valuemax="100"></div>
-        </div>
-        <div class="d-flex justify-content-between small text-muted mt-2">
-            <span><i class="fa-solid fa-circle text-success me-1"></i> Realized Profit in Hand: <strong><?= format_currency($realized_profit_total) ?></strong></span>
-            <span><i class="fa-solid fa-circle text-warning me-1"></i> Expected Profit Pending Collection: <strong><?= format_currency($pending_profit) ?></strong></span>
         </div>
     </div>
 </div>
