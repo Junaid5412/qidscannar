@@ -113,6 +113,13 @@ jobs:
           sed -i '' -E "s/^#? ?platform :ios.*/platform :ios, '15.5'/" ios/Podfile
           sed -i '' -E "s/IPHONEOS_DEPLOYMENT_TARGET = [0-9.]+/IPHONEOS_DEPLOYMENT_TARGET = 15.5/g" ios/Runner.xcodeproj/project.pbxproj
 
+          # Pin the bundle identifier to match Android. Flutter would otherwise
+          # derive com.qid.qidScanner from the project name, and the identifier
+          # registered with Apple must match the binary exactly or signing fails.
+          # The RunnerTests target keeps its own suffixed id, hence the skip.
+          sed -i '' -E "/RunnerTests/!s/PRODUCT_BUNDLE_IDENTIFIER = [^;]+;/PRODUCT_BUNDLE_IDENTIFIER = com.qid.scanner;/" ios/Runner.xcodeproj/project.pbxproj
+          grep -n "PRODUCT_BUNDLE_IDENTIFIER" ios/Runner.xcodeproj/project.pbxproj
+
       - name: Install Dependencies
         working-directory: ./mobile_app
         run: flutter pub get
@@ -126,7 +133,19 @@ jobs:
         run: |
           mkdir -p ios_output
           cd mobile_app/build/ios/iphoneos
+
+          # Plain Runner.app, kept for anyone signing it with Xcode directly.
           zip -r -y ../../../../ios_output/qid-scanner-ios-app.zip Runner.app
+
+          # A real .ipa: an IPA is just a zip whose top level is Payload/.
+          # Signing tools (AppUploader, Xcode, Transporter) only accept this
+          # layout, so without the wrapper the build cannot be resigned or
+          # installed on a device at all.
+          mkdir -p Payload
+          cp -R Runner.app Payload/
+          zip -r -y ../../../../ios_output/qid-scanner-unsigned.ipa Payload
+          rm -rf Payload
+
           cd ../../../..
           ls -lh ios_output
 
@@ -134,5 +153,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: QID-Scanner-iOS-App
-          path: ios_output/qid-scanner-ios-app.zip
+          path: |
+            ios_output/qid-scanner-ios-app.zip
+            ios_output/qid-scanner-unsigned.ipa
           retention-days: 30
