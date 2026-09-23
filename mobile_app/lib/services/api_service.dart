@@ -131,16 +131,17 @@ class ApiService {
   }
 
   /// Automatically discovers the QID server on the local Wi-Fi subnet.
-  /// Optimized: parallel probing, filtered interfaces, fast verification.
+  /// Returns the detected server URL or null.
+  /// [onProgress] receives live diagnostic messages shown to the user.
   static Future<String?> discoverLocalServer({
     Function(String status)? onProgress,
   }) async {
-    onProgress?.call('Detecting Wi-Fi network...');
+    onProgress?.call('Detecting network interfaces...');
 
-    final Set<String> subnetPrefixes = {};
-    final Set<String> ownIps = {};
+    // ── Step 1: Gather ALL device IPv4 addresses ──
+    final List<String> allDeviceIps = [];
+    final List<String> interfaceLog = [];
 
-    // 1. Detect device's local IPv4 addresses (Wi-Fi only)
     try {
       final interfaces = await NetworkInterface.list(
         includeLoopback: false,
@@ -148,104 +149,108 @@ class ApiService {
       );
 
       for (final iface in interfaces) {
-        // Skip cellular/mobile data interfaces
-        final name = iface.name.toLowerCase();
-        if (name.contains('rmnet') ||
-            name.contains('ccmni') ||
-            name.contains('pdp') ||
-            name.contains('clat') ||
-            name.contains('v4-rmnet')) {
-          continue;
-        }
-
         for (final addr in iface.addresses) {
           final ip = addr.address;
-          // Skip link-local and APIPA addresses
-          if (ip.startsWith('169.254.')) continue;
-          // Skip carrier IPs (they tend to be in 10.x or unusual ranges)
-          // but keep 10.0.2.x for emulators and 10.0.0.x/10.0.1.x for common LANs
-          ownIps.add(ip);
-          final parts = ip.split('.');
-          if (parts.length == 4) {
-            final prefix = '${parts[0]}.${parts[1]}.${parts[2]}.';
-            subnetPrefixes.add(prefix);
-          }
+          if (ip.startsWith('169.254.')) continue; // skip APIPA
+          allDeviceIps.add(ip);
+          interfaceLog.add('${iface.name}=$ip');
         }
       }
-    } catch (_) {}
-
-    onProgress?.call('Found ${subnetPrefixes.length} subnet(s), scanning...');
-
-    // 2. Add common home/office subnets as fallback
-    if (subnetPrefixes.isEmpty) {
-      subnetPrefixes.addAll([
-        '192.168.0.',
-        '192.168.1.',
-        '192.168.10.',
-        '192.168.100.',
-        '10.0.0.',
-      ]);
+    } catch (e) {
+      interfaceLog.add('ERROR: $e');
     }
 
-    // 3. Scan each subnet
-    for (final prefix in subnetPrefixes) {
-      onProgress?.call('Scanning ${prefix}0/24...');
+    onProgress?.call('Interfaces: ${interfaceLog.isEmpty ? "none found" : interfaceLog.join(", ")}');
 
-      // Smart host ordering: prioritize where DHCP typically assigns PCs
-      final List<int> hostOrder = [];
+    // Short pause so user can read the interface info
+    await Future.delayed(const Duration(milliseconds: 600));
 
-      // a) Common DHCP high range (where your PC at .153/.158 sits)
-      for (int i = 100; i <= 200; i++) {
-        hostOrder.add(i);
+    // ── Step 2: Build subnet list from device IPs (prefer private ranges) ──
+    final List<String> subnetsToScan = [];
+    final Set<String> seenSubnets = {};
+
+    for (final ip in allDeviceIps) {
+      final parts = ip.split('.');
+      if (parts.length != 4) continue;
+
+      final prefix = '${parts[0]}.${parts[1]}.${parts[2]}.';
+
+      // Only scan private network ranges (skip carrier IPs like 100.x.x.x)
+      final first = int.tryParse(parts[0]) ?? 0;
+      final second = int.tryParse(parts[1]) ?? 0;
+      final isPrivate = (first == 192 && second == 168) ||
+          (first == 10) ||
+          (first == 172 && second >= 16 && second <= 31);
+
+      if (isPrivate && !seenSubnets.contains(prefix)) {
+        seenSubnets.add(prefix);
+        // Prioritize 192.168.x.x (most common Wi-Fi)
+        if (first == 192) {
+          subnetsToScan.insert(0, prefix);
+        } else {
+          subnetsToScan.add(prefix);
+        }
       }
-      // b) Gateway & static server IPs
-      for (int i = 1; i <= 20; i++) {
-        if (!hostOrder.contains(i)) hostOrder.add(i);
+    }
+
+    // Add common fallback subnets if we found nothing
+    if (subnetsToScan.isEmpty) {
+      onProgress?.call('No Wi-Fi subnet detected, trying common ranges...');
+      for (final fb in ['192.168.0.', '192.168.1.', '192.168.10.', '192.168.100.', '10.0.0.']) {
+        if (!seenSubnets.contains(fb)) {
+          subnetsToScan.add(fb);
+          seenSubnets.add(fb);
+        }
       }
-      // c) Remaining range
-      for (int i = 201; i <= 254; i++) {
-        if (!hostOrder.contains(i)) hostOrder.add(i);
-      }
-      for (int i = 21; i <= 99; i++) {
-        if (!hostOrder.contains(i)) hostOrder.add(i);
+    }
+
+    // ── Step 3: For each subnet, do a phased scan ──
+    for (final prefix in subnetsToScan) {
+      onProgress?.call('Scanning $prefix*  (phase 1: quick targets)...');
+
+      // Phase 1: DIRECT quick-probe of the most likely host IPs first
+      // These are common DHCP assignments for Windows PCs on home/office Wi-Fi
+      final quickTargets = <int>[
+        // Typical Windows DHCP range on most routers
+        153, 154, 150, 151, 152, 155, 156, 157, 158, 159, 160,
+        // Common static/server IPs
+        100, 101, 102, 103, 104, 105,
+        // Gateway IPs (some XAMPP setups bind to gateway)
+        1, 2, 254,
+      ];
+
+      // Remove own IPs
+      quickTargets.removeWhere((h) => allDeviceIps.contains('$prefix$h'));
+
+      // Try quick targets first – small batch, generous timeout
+      final quickResult = await _scanBatch(prefix, quickTargets, onProgress, 1200);
+      if (quickResult != null) return quickResult;
+
+      // Phase 2: Full sequential scan of ALL remaining hosts (1-254)
+      onProgress?.call('Scanning $prefix*  (phase 2: full range)...');
+
+      final List<int> fullRange = [];
+      for (int h = 1; h <= 254; h++) {
+        if (!quickTargets.contains(h) && !allDeviceIps.contains('$prefix$h')) {
+          fullRange.add(h);
+        }
       }
 
-      // Remove our own device IPs from scan targets
-      hostOrder.removeWhere((h) => ownIps.contains('$prefix$h'));
-
-      // Scan in batches of 50 (parallel TCP probes)
-      const int batchSize = 50;
-      for (int i = 0; i < hostOrder.length; i += batchSize) {
-        final end = (i + batchSize < hostOrder.length) ? i + batchSize : hostOrder.length;
-        final batch = hostOrder.sublist(i, end);
+      // Scan in small safe batches of 20 with generous 1.2s timeout
+      const batchSize = 20;
+      for (int i = 0; i < fullRange.length; i += batchSize) {
+        final end = (i + batchSize < fullRange.length) ? i + batchSize : fullRange.length;
+        final batch = fullRange.sublist(i, end);
 
         onProgress?.call('Probing $prefix${batch.first} – $prefix${batch.last}...');
 
-        // Parallel TCP port 80 check
-        final probeResults = await Future.wait(batch.map((hostNum) async {
-          final targetIp = '$prefix$hostNum';
-          final isOpen = await _checkPort(targetIp, 80, timeoutMs: 500);
-          return isOpen ? targetIp : null;
-        }));
-
-        final openIps = probeResults.whereType<String>().toList();
-        if (openIps.isEmpty) continue;
-
-        onProgress?.call('Found ${openIps.length} hosts, verifying...');
-
-        // Verify ALL open hosts in PARALLEL (not sequentially!)
-        final verifyResults = await Future.wait(openIps.map((openIp) async {
-          return await _verifyQidServer(openIp);
-        }));
-
-        for (final result in verifyResults) {
-          if (result != null) return result;
-        }
+        final batchResult = await _scanBatch(prefix, batch, onProgress, 1200);
+        if (batchResult != null) return batchResult;
       }
     }
 
-    // 4. Last resort: try Android emulator host (only with fast port check)
-    if (await _checkPort('10.0.2.2', 80, timeoutMs: 300)) {
+    // ── Step 4: Last resort – Android emulator ──
+    if (await _checkPort('10.0.2.2', 80, timeoutMs: 500)) {
       final result = await _verifyQidServer('10.0.2.2');
       if (result != null) return result;
     }
@@ -253,8 +258,40 @@ class ApiService {
     return null;
   }
 
-  /// Fast TCP socket probe to check if HTTP port is open
-  static Future<bool> _checkPort(String ip, int port, {int timeoutMs = 500}) async {
+  /// Scans a batch of host numbers on the given subnet prefix.
+  /// Returns the first verified QID server URL, or null.
+  static Future<String?> _scanBatch(
+    String prefix,
+    List<int> hostNumbers,
+    Function(String status)? onProgress,
+    int timeoutMs,
+  ) async {
+    // Parallel TCP port 80 check
+    final probeResults = await Future.wait(hostNumbers.map((h) async {
+      final ip = '$prefix$h';
+      final isOpen = await _checkPort(ip, 80, timeoutMs: timeoutMs);
+      return isOpen ? ip : null;
+    }));
+
+    final openIps = probeResults.whereType<String>().toList();
+    if (openIps.isEmpty) return null;
+
+    onProgress?.call('Port 80 open on: ${openIps.join(", ")} – verifying...');
+
+    // Verify each open host in parallel
+    final verifyResults = await Future.wait(openIps.map((ip) async {
+      return await _verifyQidServer(ip);
+    }));
+
+    for (final result in verifyResults) {
+      if (result != null) return result;
+    }
+
+    return null;
+  }
+
+  /// Fast TCP socket probe to check if HTTP port is open.
+  static Future<bool> _checkPort(String ip, int port, {int timeoutMs = 1200}) async {
     try {
       final socket = await Socket.connect(
         ip,
@@ -269,43 +306,36 @@ class ApiService {
   }
 
   /// Verifies if a given IP is running the QID Management System.
-  /// Fast: tries /QID/api/discovery.php first (most likely path),
-  /// then falls back to root, with short timeouts.
+  /// Tries /QID/api/discovery.php first, then /qid, then root, then app_login fallback.
   static Future<String?> _verifyQidServer(String ip, {int port = 80}) async {
     final portSuffix = (port == 80) ? '' : ':$port';
 
-    // Try the known paths in priority order — /QID is the standard XAMPP path
-    final pathsToTry = ['/QID', '/qid', ''];
-
-    for (final path in pathsToTry) {
-      final baseUrl = 'http://$ip$portSuffix$path';
-
-      // Primary check: discovery.php (fastest, designed for this purpose)
+    // Try discovery.php on known paths
+    for (final path in ['/QID', '/qid', '']) {
       try {
-        final uri = Uri.parse('$baseUrl/api/discovery.php');
+        final uri = Uri.parse('http://$ip$portSuffix$path/api/discovery.php');
         final response = await http
             .get(uri)
-            .timeout(const Duration(milliseconds: 800));
+            .timeout(const Duration(seconds: 2));
         if (response.statusCode == 200) {
           final dynamic data = jsonDecode(response.body);
           if (data is Map && data['app'] == 'qid_scanner') {
-            // Use the server's own recommended URL if available
             final recUrl = data['recommended_url'] as String?;
             if (recUrl != null && recUrl.isNotEmpty) {
               return recUrl;
             }
-            return baseUrl;
+            return 'http://$ip$portSuffix$path';
           }
         }
       } catch (_) {}
     }
 
-    // Last fallback: check app_login.php on /QID only
+    // Fallback: check app_login.php on /QID
     try {
       final uri = Uri.parse('http://$ip$portSuffix/QID/api/app_login.php');
       final response = await http
           .post(uri, body: {})
-          .timeout(const Duration(milliseconds: 800));
+          .timeout(const Duration(seconds: 2));
       if (response.statusCode == 200 ||
           response.statusCode == 400 ||
           response.statusCode == 401) {
@@ -316,4 +346,5 @@ class ApiService {
     return null;
   }
 }
+
 

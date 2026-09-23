@@ -58,9 +58,12 @@ class _LoginScreenState extends State<LoginScreen> {
       }
     });
 
+    String lastProgress = '';
+
     try {
       final detectedUrl = await ApiService.discoverLocalServer(
         onProgress: (status) {
+          lastProgress = status;
           if (mounted) {
             setState(() {
               _discoveryProgress = status;
@@ -76,7 +79,7 @@ class _LoginScreenState extends State<LoginScreen> {
           _serverController.text = detectedUrl;
           _isDiscovering = false;
           _discoveryProgress = null;
-          _statusMessage = 'Auto-detected QID Server:\n$detectedUrl';
+          _statusMessage = '✓ Auto-detected QID Server:\n$detectedUrl';
           _isStatusPositive = true;
         });
         await StorageService.setServerUrl(detectedUrl);
@@ -85,7 +88,10 @@ class _LoginScreenState extends State<LoginScreen> {
           _isDiscovering = false;
           _discoveryProgress = null;
           if (!silent) {
-            _statusMessage = 'Could not auto-detect QID server on this Wi-Fi network.\nPlease verify PC is connected to the same Wi-Fi.';
+            _statusMessage =
+                'Could not find QID server.\n'
+                'Make sure phone & PC are on same Wi-Fi.\n'
+                'Last scan: $lastProgress';
             _isStatusPositive = false;
           }
         });
@@ -96,7 +102,7 @@ class _LoginScreenState extends State<LoginScreen> {
         _isDiscovering = false;
         _discoveryProgress = null;
         if (!silent) {
-          _statusMessage = 'Wi-Fi auto-discovery error: $e';
+          _statusMessage = 'Discovery error: $e\nLast: $lastProgress';
           _isStatusPositive = false;
         }
       });
@@ -449,14 +455,19 @@ class _LoginScreenState extends State<LoginScreen> {
                       // Status message
                       if (_statusMessage != null) ...[
                         const SizedBox(height: 14),
-                        Center(
-                          child: Text(
-                            _statusMessage!,
-                            textAlign: TextAlign.center,
-                            style: TextStyle(
-                              color: _isStatusPositive ? const Color(0xFF10B981) : const Color(0xFFEF4444),
-                              fontSize: 12,
-                              fontWeight: FontWeight.w600,
+                        Container(
+                          constraints: const BoxConstraints(maxHeight: 100),
+                          child: SingleChildScrollView(
+                            child: Text(
+                              _statusMessage!,
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                color: _isStatusPositive
+                                    ? const Color(0xFF10B981)
+                                    : const Color(0xFFEF4444),
+                                fontSize: _isStatusPositive ? 12 : 11,
+                                fontWeight: FontWeight.w600,
+                              ),
                             ),
                           ),
                         ),
