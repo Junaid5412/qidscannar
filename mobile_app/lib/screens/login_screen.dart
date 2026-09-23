@@ -93,12 +93,11 @@ class _LoginScreenState extends State<LoginScreen> {
           _isDiscovering = false;
           _discoveryProgress = null;
           if (!silent) {
-            _statusMessage =
-                'Could not find the QID server on this Wi-Fi.\n'
-                '• Phone and PC must be on the SAME Wi-Fi\n'
-                '• XAMPP Apache must be running\n'
-                '• Allow Apache through Windows Firewall\n'
-                'Last step: $lastProgress';
+            final details = NetworkService.lastDiagnostics;
+            _statusMessage = details.isNotEmpty
+                ? 'Could not find the QID server.\n\n$details'
+                : 'Could not find the QID server on this Wi-Fi.\n'
+                    'Last step: $lastProgress';
             _isStatusPositive = false;
           }
         });
@@ -463,16 +462,33 @@ class _LoginScreenState extends State<LoginScreen> {
                       if (_statusMessage != null) ...[
                         const SizedBox(height: 14),
                         Container(
-                          constraints: const BoxConstraints(maxHeight: 100),
+                          width: double.infinity,
+                          // Failures now carry a multi-line diagnostic, so give it
+                          // room to be read rather than clipping it to two lines.
+                          constraints: BoxConstraints(
+                            maxHeight: _isStatusPositive ? 100 : 230,
+                          ),
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF0F172A),
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(
+                              color: _isStatusPositive
+                                  ? const Color(0xFF10B981)
+                                  : const Color(0xFFEF4444),
+                            ),
+                          ),
                           child: SingleChildScrollView(
-                            child: Text(
+                            child: SelectableText(
                               _statusMessage!,
-                              textAlign: TextAlign.center,
+                              textAlign:
+                                  _isStatusPositive ? TextAlign.center : TextAlign.left,
                               style: TextStyle(
                                 color: _isStatusPositive
                                     ? const Color(0xFF10B981)
                                     : const Color(0xFFEF4444),
                                 fontSize: _isStatusPositive ? 12 : 11,
+                                height: 1.35,
                                 fontWeight: FontWeight.w600,
                               ),
                             ),

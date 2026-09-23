@@ -54,6 +54,19 @@ class NetworkService {
   /// of waves, low enough to stay well clear of the per-process socket limit.
   static const int _concurrency = 48;
 
+  /// Gentler retry pass. A burst of 48 simultaneous SYNs can thrash a phone's
+  /// ARP cache badly enough to lose the reply from the one host that matters, so
+  /// a failed fast sweep is followed by a slower, more patient one.
+  static const int _retryConcurrency = 10;
+  static const Duration _retryTcpTimeout = Duration(milliseconds: 2000);
+
+  /// How many hosts of the last sweep answered on the HTTP port. Zero means the
+  /// phone could not reach *anything* - a router/subnet problem, not our problem.
+  static int _openHostCount = 0;
+
+  /// Human-readable account of the last failed discovery, shown to the user.
+  static String lastDiagnostics = '';
+
   static Timer? _watchTimer;
   static String? _watchedNetworkKey;
 
@@ -182,9 +195,13 @@ class NetworkService {
   static Future<QidServerInfo?> _runDiscovery({
     void Function(String status)? onProgress,
   }) async {
+    _openHostCount = 0;
+
     final deviceIps = await localIpv4s();
 
     if (deviceIps.isEmpty) {
+      lastDiagnostics = 'Phone has no private Wi-Fi address. Is Wi-Fi on, and is '
+          'it a normal network (not a captive/guest portal)?';
       onProgress?.call('No Wi-Fi connection detected on this phone.');
       return null;
     }
@@ -231,6 +248,24 @@ class NetworkService {
           return result;
         }
       }
+
+      // Slow pass on port 80 only. Wi-Fi drops packets under a heavy probe burst,
+      // so a miss on the fast sweep is not proof the PC is absent.
+      onProgress?.call('Retrying $prefix* slowly...');
+      final patient = await _sweep(
+        prefix: prefix,
+        hosts: candidates,
+        port: 80,
+        onProgress: onProgress,
+        concurrency: _retryConcurrency,
+        tcpTimeout: _retryTcpTimeout,
+      );
+
+      if (patient != null) {
+        await _remember(prefix, patient.url, serverId: patient.serverId);
+        onProgress?.call('Found ${patient.hostname} at ${patient.url}');
+        return patient;
+      }
     }
 
     // Android emulator host loopback - only reachable when running in an emulator.
@@ -238,8 +273,39 @@ class NetworkService {
     final emulator = await _probeAndVerify('10.0.2.2', 80);
     if (emulator != null) return emulator;
 
+    lastDiagnostics = _buildDiagnostics(deviceIps, subnets);
     onProgress?.call('No QID server responded on ${subnets.join(", ")}*');
     return null;
+  }
+
+  /// Turns a failed sweep into something that actually points at the cause.
+  ///
+  /// The decisive fact is whether *any* host answered on the HTTP port: none at
+  /// all means the phone's traffic never reached the LAN (router client
+  /// isolation, or the phone is on a different network than the PC), which no
+  /// amount of retrying in the app can solve.
+  static String _buildDiagnostics(List<String> deviceIps, List<String> subnets) {
+    final phoneIp = deviceIps.isEmpty ? 'none' : deviceIps.join(', ');
+    final scanned = subnets.map((s) => '$s*').join(', ');
+
+    if (_openHostCount == 0) {
+      return 'Phone IP: $phoneIp\n'
+          'Scanned: $scanned\n'
+          'No device on this Wi-Fi answered on port 80 - not even the router.\n\n'
+          'That means the phone cannot reach the PC at all:\n'
+          '• The Wi-Fi may block device-to-device traffic (AP isolation)\n'
+          '• Or the PC is on a different Wi-Fi / subnet than this phone\n\n'
+          'Check: open the PC address in this phone\'s browser. If that also '
+          'fails, it is the network, not the app.';
+    }
+
+    return 'Phone IP: $phoneIp\n'
+        'Scanned: $scanned\n'
+        '$_openHostCount device(s) answered on port 80, but none was a QID server.\n\n'
+        'The phone can reach the network, so check the PC:\n'
+        '• XAMPP Apache must be running\n'
+        '• The QID folder must be at htdocs\\QID\n'
+        '• Confirm http://<PC-IP>/QID/api/discovery.php opens in this phone\'s browser';
   }
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -310,6 +376,8 @@ class NetworkService {
     required List<int> hosts,
     required int port,
     void Function(String status)? onProgress,
+    int concurrency = _concurrency,
+    Duration tcpTimeout = _tcpTimeout,
   }) async {
     if (hosts.isEmpty) return null;
 
@@ -327,7 +395,7 @@ class NetworkService {
 
         QidServerInfo? info;
         try {
-          info = await _probeAndVerify('$prefix${hosts[index]}', port);
+          info = await _probeAndVerify('$prefix${hosts[index]}', port, tcpTimeout);
         } catch (_) {
           // A worker must never die on one bad host: if it did, the pool's
           // Future.wait would reject and this sweep would never complete.
@@ -342,13 +410,13 @@ class NetworkService {
         scanned++;
         // Report roughly once per wave: often enough to look alive, rare enough
         // not to rebuild the UI 254 times.
-        if (scanned % _concurrency == 0) {
+        if (scanned % concurrency == 0) {
           onProgress?.call('Scanned $scanned of ${hosts.length} on $prefix*');
         }
       }
     }
 
-    final poolSize = hosts.length < _concurrency ? hosts.length : _concurrency;
+    final poolSize = hosts.length < concurrency ? hosts.length : concurrency;
 
     void finishEmpty(Object? _) {
       if (!completer.isCompleted) completer.complete(null);
@@ -364,15 +432,23 @@ class NetworkService {
   }
 
   /// TCP-knocks a host and, only if something is listening, asks whether it is us.
-  static Future<QidServerInfo?> _probeAndVerify(String ip, int port) async {
+  static Future<QidServerInfo?> _probeAndVerify(
+    String ip,
+    int port, [
+    Duration tcpTimeout = _tcpTimeout,
+  ]) async {
     Socket? socket;
     try {
-      socket = await Socket.connect(ip, port, timeout: _tcpTimeout);
+      socket = await Socket.connect(ip, port, timeout: tcpTimeout);
     } catch (_) {
       return null; // nothing listening - by far the common case
     } finally {
       socket?.destroy();
     }
+
+    // Counted for diagnostics: "nothing at all answered" and "plenty answered but
+    // none was QID" are completely different problems with different fixes.
+    _openHostCount++;
 
     return _verifyHost(ip, port);
   }
