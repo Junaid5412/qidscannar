@@ -398,6 +398,16 @@ include __DIR__ . '/includes/header.php';
                             </div>
 
                             <hr class="my-2">
+                            <div class="small mb-2" style="font-size: 0.75rem;">
+                                <span class="fw-bold text-dark"><i class="fa-solid fa-bolt text-success me-1"></i> Instant discovery (recommended)</span>
+                                <div class="text-muted">
+                                    Double-click <code>tools\start_discovery_daemon.bat</code> and leave the window open.
+                                    The phone then finds this PC in about <strong>4 milliseconds</strong> instead of probing
+                                    254 addresses. To start it with Windows, put a shortcut to it in
+                                    <code>shell:startup</code>.
+                                </div>
+                            </div>
+
                             <div class="small" style="font-size: 0.75rem;">
                                 <span class="fw-bold text-dark"><i class="fa-solid fa-shield-halved text-warning me-1"></i> Phone can't find the PC?</span>
                                 <div class="text-muted mb-1">

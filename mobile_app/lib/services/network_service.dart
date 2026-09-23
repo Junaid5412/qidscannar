@@ -40,6 +40,10 @@ class NetworkService {
   /// another full sweep when the server is absent, so this stays short.
   static const List<int> _ports = [80, 8080];
 
+  /// UDP port the PC's discovery daemon listens on (tools/discovery_daemon.php).
+  static const int _broadcastPort = 45454;
+  static const String _broadcastProbe = 'QID_DISCOVER';
+
   /// Folder names this system is typically installed under.
   static const List<String> _basePaths = ['/QID', '/qid', '', '/qid_management'];
 
@@ -135,10 +139,21 @@ class NetworkService {
     return '${parts[0]}.${parts[1]}.${parts[2]}.';
   }
 
+  static final RegExp _ipv4Pattern =
+      RegExp(r'(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})');
+
   static int? _lastOctetOf(String ipOrUrl) {
-    final match = RegExp(r'(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})').firstMatch(ipOrUrl);
+    final match = _ipv4Pattern.firstMatch(ipOrUrl);
     if (match == null) return null;
     return int.tryParse(match.group(4)!);
+  }
+
+  /// Subnet prefix of the IPv4 address embedded in a URL, e.g.
+  /// `http://192.168.0.153/QID` -> `192.168.0.`. Null when the URL uses a name.
+  static String? _prefixOfUrl(String url) {
+    final match = _ipv4Pattern.firstMatch(url);
+    if (match == null) return null;
+    return '${match.group(1)}.${match.group(2)}.${match.group(3)}.';
   }
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -223,6 +238,19 @@ class NetworkService {
       }
     }
 
+    // Ask the network directly before resorting to brute force. When the PC runs
+    // tools/start_discovery_daemon.bat this answers in a few milliseconds and
+    // finds the PC wherever it sits in the range, instead of hoping it falls in
+    // the part of the subnet we probe first.
+    onProgress?.call('Asking the network for the QID server...');
+    final announced = await _discoverByBroadcast();
+    if (announced != null) {
+      final prefix = _prefixOfUrl(announced.url) ?? await currentNetworkKey() ?? '';
+      await _remember(prefix, announced.url, serverId: announced.serverId);
+      onProgress?.call('Found ${announced.hostname} at ${announced.url}');
+      return announced;
+    }
+
     final hints = await _hostNumberHints();
 
     for (final prefix in subnets) {
@@ -305,7 +333,10 @@ class NetworkService {
           '• The Wi-Fi may block device-to-device traffic (AP isolation)\n'
           '• Or the PC is on a different Wi-Fi / subnet than this phone\n\n'
           'Check: open the PC address in this phone\'s browser. If that also '
-          'fails, it is the network, not the app.';
+          'fails, it is the network, not the app.\n\n'
+          'Fastest fix: on the PC run tools\\start_discovery_daemon.bat, then '
+          'tap Auto-Detect again. If that still fails, the network is blocking '
+          'the phone and only a VPN such as Tailscale will help.';
     }
 
     return 'Phone IP: $phoneIp\n'
@@ -315,6 +346,100 @@ class NetworkService {
         '• XAMPP Apache must be running\n'
         '• The QID folder must be at htdocs\\QID\n'
         '• Confirm http://<PC-IP>/QID/api/discovery.php opens in this phone\'s browser';
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Broadcast discovery
+  // ─────────────────────────────────────────────────────────────────────────
+
+  /// Shouts once on the local network and waits for the QID PC to answer.
+  ///
+  /// This is how printers and media devices are found, and it beats probing the
+  /// subnet on every count: it takes milliseconds rather than seconds, and it
+  /// locates the PC wherever it sits in the address range instead of depending on
+  /// the probe order. It needs `tools/start_discovery_daemon.bat` running on the
+  /// PC; when that is not running this returns null and the sweep takes over.
+  ///
+  /// Whatever the daemon claims is still verified over HTTP before it is trusted.
+  static Future<QidServerInfo?> _discoverByBroadcast({
+    Duration timeout = const Duration(milliseconds: 1500),
+  }) async {
+    final RawDatagramSocket bound;
+    try {
+      bound = await RawDatagramSocket.bind(InternetAddress.anyIPv4, 0);
+    } catch (_) {
+      return null; // some networks forbid binding a datagram socket
+    }
+
+    try {
+      bound.broadcastEnabled = true;
+    } catch (_) {
+      bound.close();
+      return null;
+    }
+
+    final completer = Completer<String?>();
+    final payload = utf8.encode(_broadcastProbe);
+
+    // Global broadcast plus each interface's directed broadcast: some Wi-Fi
+    // drivers and routers silently drop 255.255.255.255 but pass 192.168.0.255.
+    final targets = <InternetAddress>[InternetAddress('255.255.255.255')];
+    for (final ip in await localIpv4s()) {
+      try {
+        targets.add(InternetAddress('${_prefixOf(ip)}255'));
+      } catch (_) {
+        // Malformed address - skip this interface.
+      }
+    }
+
+    final sub = bound.listen((event) {
+      if (event != RawSocketEvent.read) return;
+
+      final datagram = bound.receive();
+      if (datagram == null) return;
+
+      try {
+        final dynamic data = jsonDecode(utf8.decode(datagram.data));
+        if (data is Map && data['app'] == 'qid_scanner') {
+          final url = (data['recommended_url'] as String?)?.trim();
+          if (url != null && url.isNotEmpty && !completer.isCompleted) {
+            completer.complete(url);
+          }
+        }
+      } catch (_) {
+        // Not our reply - ignore and keep listening.
+      }
+    });
+
+    try {
+      // UDP is lossy and Wi-Fi drops broadcasts freely, so ask a few times
+      // rather than concluding "absent" from a single unanswered probe.
+      final deadline = DateTime.now().add(timeout);
+      while (!completer.isCompleted && DateTime.now().isBefore(deadline)) {
+        for (final target in targets) {
+          try {
+            bound.send(payload, target, _broadcastPort);
+          } catch (_) {
+            // One unreachable target must not abort the others.
+          }
+        }
+        await Future.any<String?>([
+          completer.future,
+          Future<String?>.delayed(const Duration(milliseconds: 300)),
+        ]);
+      }
+
+      if (!completer.isCompleted) return null;
+
+      final url = await completer.future;
+      if (url == null || url.isEmpty) return null;
+
+      // Trust nothing on the wire: confirm the address actually serves QID.
+      return _fetchDiscovery(StorageService.cleanUrl(url));
+    } finally {
+      await sub.cancel();
+      bound.close();
+    }
   }
 
   // ─────────────────────────────────────────────────────────────────────────

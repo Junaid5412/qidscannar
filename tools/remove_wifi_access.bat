@@ -19,8 +19,9 @@ if %errorLevel% neq 0 (
 )
 
 echo.
-echo  Removing the XAMPP Apache firewall rule...
+echo  Removing the XAMPP Apache firewall rules...
 netsh advfirewall firewall delete rule name="XAMPP Apache (QID) HTTP"
+netsh advfirewall firewall delete rule name="XAMPP Apache (QID) Discovery"
 echo.
 echo  [OK] Removed. The mobile app can no longer reach this PC.
 echo.

@@ -89,6 +89,40 @@ That adds an inbound rule for TCP 80/8080 scoped to `remoteip=localsubnet`, so o
 devices on your own Wi-Fi can connect — the PC is not exposed to the internet.
 `tools\remove_wifi_access.bat` undoes it.
 
+### Connection methods, fastest first
+
+The app tries these in order and uses the first that answers:
+
+| # | Method | Speed | Needs |
+|---|---|---|---|
+| 1 | Saved address re-verified | <1s | nothing |
+| 2 | Address remembered for this Wi-Fi | <1s | connected here before |
+| 3 | **UDP broadcast** | **~4ms** | `tools\start_discovery_daemon.bat` running |
+| 4 | Parallel subnet sweep | 1–8s | nothing |
+| 5 | Slow retry of likely hosts | ~12s | nothing |
+
+**Method 3 is the one worth setting up.** Apache speaks only TCP/HTTP and cannot
+hold a UDP socket open between requests, so the broadcast responder runs as its own
+small PHP CLI process. The phone shouts `QID_DISCOVER` once to the subnet broadcast
+address; only this PC answers, with the same JSON `api/discovery.php` returns. It
+finds the PC wherever it sits in the address range, rather than hoping it falls
+early in the probe order.
+
+Start it: double-click `tools\start_discovery_daemon.bat` and leave the window open.
+Auto-start it: put a shortcut to that file in `shell:startup`.
+
+### If the LAN itself is blocked
+
+If the phone cannot reach the PC at all, **no discovery method can help** — scanning,
+broadcast, QR codes and typing the IP by hand all send packets to the same address.
+The usual causes are router AP/client isolation, or the phone being on a different
+SSID/subnet than the PC.
+
+The fix that sidesteps this completely is a mesh VPN such as **Tailscale**: install it
+on the PC and the phones, and the PC gets an address like `100.x.y.z` that never
+changes on any network and works over mobile data too. Set the app's Server URL to
+`http://100.x.y.z/QID` once and it never needs detection again.
+
 ### If the phone still cannot find the PC
 
 1. Phone and PC must be on the **same** Wi-Fi (not guest Wi-Fi, and phone not on mobile data).

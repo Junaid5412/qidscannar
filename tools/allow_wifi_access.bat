@@ -29,7 +29,9 @@ echo  Adding Windows Firewall rules for XAMPP Apache...
 echo.
 
 netsh advfirewall firewall delete rule name="XAMPP Apache (QID) HTTP" >nul 2>&1
+netsh advfirewall firewall delete rule name="XAMPP Apache (QID) Discovery" >nul 2>&1
 
+REM Apache itself - this is what actually serves the system to the phone.
 netsh advfirewall firewall add rule ^
     name="XAMPP Apache (QID) HTTP" ^
     dir=in action=allow protocol=TCP localport=80,8080 ^
@@ -38,10 +40,25 @@ netsh advfirewall firewall add rule ^
 
 if %errorLevel% neq 0 (
     echo.
-    echo  [X] Failed to add the firewall rule.
+    echo  [X] Failed to add the HTTP firewall rule.
     echo.
     pause
     exit /b 1
+)
+
+REM UDP broadcast discovery - lets the app find this PC instantly instead of
+REM probing every address on the subnet. Used by start_discovery_daemon.bat.
+netsh advfirewall firewall add rule ^
+    name="XAMPP Apache (QID) Discovery" ^
+    dir=in action=allow protocol=UDP localport=45454 ^
+    profile=any remoteip=localsubnet ^
+    description="Lets the QID mobile app discover this PC by UDP broadcast."
+
+if %errorLevel% neq 0 (
+    echo.
+    echo  [!] The HTTP rule was added, but the UDP discovery rule failed.
+    echo      Instant discovery will not work; scanning will still be used.
+    echo.
 )
 
 echo.
