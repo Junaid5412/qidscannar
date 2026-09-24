@@ -475,7 +475,7 @@ $auto_print = isset($_GET['print']) && $_GET['print'] == '1';
                     <tr>
                         <th style="width: 5%;">#</th>
                         <th style="width: 25%;">Date & Exact Time</th>
-                        <th style="width: 18%;">Receipt No</th>
+                        <th style="width: 18%;">Paid To</th>
                         <th style="width: 15%;">Method</th>
                         <th style="width: 17%;" class="text-end">Amount Paid</th>
                         <th style="width: 20%;" class="text-end">Balance Remaining</th>
@@ -499,8 +499,8 @@ $auto_print = isset($_GET['print']) && $_GET['print'] == '1';
                                     <strong><?= format_date($pay_item['payment_date']) ?></strong>
                                     <span class="text-muted" style="font-size: 0.75rem;">(<?= format_time($pay_item['payment_time']) ?>)</span>
                                 </td>
-                                <td class="font-monospace fw-bold">
-                                    <?= htmlspecialchars($pay_item['receipt_no'] ?: ('#RCP-' . $pay_item['id'])) ?>
+                                <td>
+                                    <?= htmlspecialchars($pay_item['receipt_no'] ?: '—') ?>
                                 </td>
                                 <td>
                                     <?= htmlspecialchars($pay_item['payment_method']) ?>

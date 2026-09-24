@@ -81,7 +81,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     ':pdate'  => $initial_date,
                     ':ptime'  => $initial_time,
                     ':method' => $initial_method,
-                    ':rcp'    => $initial_receipt ?: ('RCP-' . date('Ymd') . '-' . $record_id),
+                    ':rcp'    => $initial_receipt,
                     ':pnotes' => $initial_notes ?: 'Initial installment on registration'
                 ]);
             }
@@ -274,8 +274,8 @@ include __DIR__ . '/includes/header.php';
                         </div>
 
                         <div class="col-md-4">
-                            <label class="form-label">Receipt / Voucher Number</label>
-                            <input type="text" name="initial_receipt" class="form-control font-monospace" placeholder="e.g. RCP-<?= date('Y') ?>-001">
+                            <label class="form-label">Paid To (Person Name)</label>
+                            <input type="text" name="initial_receipt" class="form-control" placeholder="e.g. Ahmad, Mohammed...">
                         </div>
 
                         <div class="col-md-4">

@@ -116,7 +116,7 @@ include __DIR__ . '/includes/header.php';
             <div class="col-lg-3 col-md-6">
                 <div class="input-group">
                     <span class="input-group-text bg-white text-muted"><i class="fa-solid fa-magnifying-glass"></i></span>
-                    <input type="text" name="search" id="tableSearchInput" data-table-target="#paymentsTable" class="form-control" placeholder="Search person, QID, receipt..." value="<?= htmlspecialchars($search) ?>">
+                    <input type="text" name="search" id="tableSearchInput" data-table-target="#paymentsTable" class="form-control" placeholder="Search person, QID, paid to..." value="<?= htmlspecialchars($search) ?>">
                 </div>
             </div>
 
@@ -165,7 +165,7 @@ include __DIR__ . '/includes/header.php';
                 <table class="table table-custom table-hover align-middle mb-0" id="paymentsTable">
                     <thead>
                         <tr>
-                            <th>Receipt / ID</th>
+                            <th>Paid To</th>
                             <th>Person Name</th>
                             <th>Amount Collected</th>
                             <th>Payment Date & Time</th>
@@ -178,8 +178,8 @@ include __DIR__ . '/includes/header.php';
                         <?php foreach ($payments as $item): ?>
                             <tr>
                                 <td>
-                                    <span class="badge bg-light text-dark border font-monospace">
-                                        <?= htmlspecialchars($item['receipt_no'] ?: ('#RCP-' . $item['id'])) ?>
+                                    <span class="text-dark">
+                                        <?= htmlspecialchars($item['receipt_no'] ?: '—') ?>
                                     </span>
                                 </td>
                                 <td>

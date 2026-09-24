@@ -98,7 +98,7 @@ if ($type === 'records') {
 
     fputcsv($output, [
         'Payment ID',
-        'Receipt No',
+        'Paid To',
         'Person Name',
         'QID Number',
         'Amount (QR)',

@@ -38,9 +38,7 @@ if ($action === 'add') {
         exit;
     }
 
-    if (empty($receipt_no)) {
-        $receipt_no = 'RCP-' . date('Ymd') . '-' . rand(100, 999);
-    }
+    // receipt_no field now stores "Paid To" person name — leave empty if not provided
 
     try {
         $stmt = $db->prepare("

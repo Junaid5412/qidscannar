@@ -311,7 +311,7 @@ include __DIR__ . '/includes/header.php';
                 <table class="table table-custom align-middle">
                     <thead>
                         <tr>
-                            <th>Receipt / ID</th>
+                            <th>Paid To</th>
                             <th>Person Name</th>
                             <th>Amount Received</th>
                             <th>Payment Date & Time</th>
@@ -324,8 +324,8 @@ include __DIR__ . '/includes/header.php';
                         <?php foreach ($recent_payments as $pay): ?>
                             <tr>
                                 <td>
-                                    <span class="badge bg-light text-dark border font-monospace">
-                                        <?= htmlspecialchars($pay['receipt_no'] ?: ('#RCP-' . $pay['id'])) ?>
+                                    <span class="text-dark">
+                                        <?= htmlspecialchars($pay['receipt_no'] ?: '—') ?>
                                     </span>
                                 </td>
                                 <td>

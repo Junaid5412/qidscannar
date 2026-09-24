@@ -219,7 +219,7 @@ include __DIR__ . '/includes/header.php';
                         <tr>
                             <th>#</th>
                             <th>Date & Exact Time</th>
-                            <th>Receipt / Ref #</th>
+                            <th>Paid To</th>
                             <th>Payment Method</th>
                             <th>Amount Paid</th>
                             <th>Remaining Balance</th>
@@ -245,8 +245,8 @@ include __DIR__ . '/includes/header.php';
                                     </div>
                                 </td>
                                 <td>
-                                    <span class="badge bg-light text-dark border font-monospace">
-                                        <?= htmlspecialchars($p['receipt_no'] ?: ('#RCP-' . $p['id'])) ?>
+                                    <span class="text-dark">
+                                        <?= htmlspecialchars($p['receipt_no'] ?: '—') ?>
                                     </span>
                                 </td>
                                 <td>
@@ -387,8 +387,8 @@ include __DIR__ . '/includes/header.php';
                             </select>
                         </div>
                         <div class="col-md-6">
-                            <label class="form-label">Receipt / Ref Number</label>
-                            <input type="text" name="receipt_no" class="form-control font-monospace" placeholder="RCP-<?= date('Ymd') ?>-<?= rand(100, 999) ?>">
+                            <label class="form-label">Paid To (Person Name)</label>
+                            <input type="text" name="receipt_no" class="form-control" placeholder="e.g. Ahmad, Mohammed...">
                         </div>
                     </div>
 
