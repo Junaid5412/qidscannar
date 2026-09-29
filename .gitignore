@@ -22,3 +22,10 @@ mobile_app/.idea/
 # Bridge secrets (never commit)
 data/bridge_link.txt
 bridge/qid_bridge_data/
+
+# Database dumps and archives - contain live tokens, password hashes and customer PII
+*.sql.bak
+qid_management_db.sql
+/QID.zip
+/mobile_app.zip
+*.zip

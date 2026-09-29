@@ -66,6 +66,12 @@ jobs:
         working-directory: ./mobile_app
         run: flutter pub get
 
+      - name: Generate app icons
+        working-directory: ./mobile_app
+        # Replaces the default Flutter placeholder icon, which Apple rejects
+        # under guideline 4.0. Runs after pub get so the package is available.
+        run: dart run flutter_launcher_icons
+
       - name: Build Android APK (Release)
         working-directory: ./mobile_app
         env:
@@ -107,13 +113,31 @@ jobs:
         working-directory: ./mobile_app
         run: |
           flutter create --platforms=ios --org com.qid --project-name qid_scanner .
-          plutil -insert NSCameraUsageDescription -string "This app requires camera access to scan Qatar ID card barcodes." ios/Runner/Info.plist || true
-          plutil -insert NSAppTransportSecurity -xml "<dict><key>NSAllowsArbitraryLoads</key><true/></dict>" ios/Runner/Info.plist || true
+          plutil -insert NSCameraUsageDescription -string "The camera is used to scan the barcode on a Qatar ID card so the record can be opened on your company's system. Images are not stored or shared." ios/Runner/Info.plist || true
+
+          # App Transport Security.
+          #
+          # NSAllowsArbitraryLoads was here before and is a common App Store
+          # rejection: it disables HTTPS enforcement for the whole internet and
+          # Apple requires a written justification for it. The app now talks to a
+          # single HTTPS bridge, so it is not needed. NSAllowsLocalNetworking is
+          # kept because Apple permits it without justification and it lets an
+          # on-premises install still be reached over plain HTTP on the LAN.
+          plutil -replace NSAppTransportSecurity -xml "<dict><key>NSAllowsLocalNetworking</key><true/></dict>" ios/Runner/Info.plist || \
+          plutil -insert NSAppTransportSecurity -xml "<dict><key>NSAllowsLocalNetworking</key><true/></dict>" ios/Runner/Info.plist || true
+
+          # Declares the app uses only standard HTTPS/TLS, which is exempt from
+          # US export rules. Without it App Store Connect blocks every build
+          # behind an encryption questionnaire.
+          plutil -insert ITSAppUsesNonExemptEncryption -bool false ios/Runner/Info.plist || true
+
+          # iPhone only. Flutter defaults to iPhone + iPad, and Apple rejects an
+          # app that claims iPad support but was never designed for that layout.
+          plutil -replace UIDeviceFamily -json '[1]' ios/Runner/Info.plist || true
           # Required by local_auth on Face ID devices. iOS terminates the app the
           # moment Face ID is requested without this key, so its absence would
           # crash the fingerprint login rather than merely refuse it.
           plutil -insert NSFaceIDUsageDescription -string "Use Face ID to unlock the QID Scanner without typing your password." ios/Runner/Info.plist || true
-          plutil -insert NSPhotoLibraryUsageDescription -string "Select a photo of a Qatar ID card to scan it." ios/Runner/Info.plist || true
           # Force iOS 15.5 deployment target for ML Kit compatibility
           sed -i '' -E "s/^#? ?platform :ios.*/platform :ios, '15.5'/" ios/Podfile
           sed -i '' -E "s/IPHONEOS_DEPLOYMENT_TARGET = [0-9.]+/IPHONEOS_DEPLOYMENT_TARGET = 15.5/g" ios/Runner.xcodeproj/project.pbxproj
@@ -128,6 +152,12 @@ jobs:
       - name: Install Dependencies
         working-directory: ./mobile_app
         run: flutter pub get
+
+      - name: Generate app icons
+        working-directory: ./mobile_app
+        # Replaces the default Flutter placeholder icon, which Apple rejects
+        # under guideline 4.0. Runs after pub get so the package is available.
+        run: dart run flutter_launcher_icons
 
       - name: Build iOS Application
         working-directory: ./mobile_app
@@ -146,6 +176,14 @@ jobs:
           # Signing tools (AppUploader, Xcode, Transporter) only accept this
           # layout, so without the wrapper the build cannot be resigned or
           # installed on a device at all.
+          # App privacy manifest. Apple has required one for the app itself since
+          # May 2024 (frameworks ship their own). It is dropped into the bundle
+          # here rather than wired into the Xcode project, because `flutter
+          # create` regenerates that project on every run and any edit to it
+          # would be discarded.
+          cp "$GITHUB_WORKSPACE/mobile_app/ios_privacy/PrivacyInfo.xcprivacy" Runner.app/PrivacyInfo.xcprivacy
+          echo "Privacy manifest added to bundle."
+
           mkdir -p Payload
           cp -R Runner.app Payload/
           zip -r -y ../../../../ios_output/qid-scanner-unsigned.ipa Payload

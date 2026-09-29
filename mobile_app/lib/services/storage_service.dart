@@ -27,12 +27,16 @@ class StorageService {
   static const String _secUsername = 'saved_username';
   static const String _secPassword = 'saved_password';
 
+  /// The session token authorises every API call, so it belongs in the
+  /// Keychain alongside the password rather than in plain preferences where
+  /// a device backup or a rooted phone would expose it.
+  static const String _secAuthToken = 'auth_token_secure';
+
   // ── Session ──────────────────────────────────────────────────────────────
 
   static Future<bool> isLoggedIn() async {
-    final prefs = await SharedPreferences.getInstance();
-    final token = prefs.getString(_keyAuthToken);
-    return token != null && token.trim().isNotEmpty;
+    final token = await getAuthToken();
+    return token.trim().isNotEmpty;
   }
 
   static Future<void> saveSession({
@@ -46,7 +50,7 @@ class StorageService {
   }) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_keyServerUrl, cleanUrl(serverUrl));
-    await prefs.setString(_keyAuthToken, token);
+    await _writeToken(token);
     await prefs.setInt(_keyUserId, userId);
     await prefs.setString(_keyUsername, username);
     await prefs.setString(_keyFullName, fullName);
@@ -55,15 +59,40 @@ class StorageService {
   }
 
   static Future<void> clearSession() async {
+    await _clearToken();
+  }
+
+  /// Keychain first, with a preferences fallback.
+  ///
+  /// The fallback exists because the Keychain can be briefly unavailable - just
+  /// after a restore, or before first unlock following a reboot. Losing the
+  /// session there would silently log the user out mid-shift, so the token is
+  /// mirrored and the mirror is cleared on logout along with everything else.
+  static Future<void> _writeToken(String token) async {
+    final prefs = await SharedPreferences.getInstance();
+    try {
+      await _secure.write(key: _secAuthToken, value: token);
+      await prefs.remove(_keyAuthToken);
+    } catch (_) {
+      await prefs.setString(_keyAuthToken, token);
+    }
+  }
+
+  static Future<void> _clearToken() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_keyAuthToken);
+    try {
+      await _secure.delete(key: _secAuthToken);
+    } catch (_) {
+      // Already gone, or the Keychain is unavailable - nothing to recover here.
+    }
   }
 
   /// Logging out must also drop anything that could sign back in silently,
   /// otherwise "Logout" would not really log the device out.
   static Future<void> forgetEverything() async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.remove(_keyAuthToken);
+    await _clearToken();
     await prefs.setBool(_keySaveLogin, false);
     await prefs.setBool(_keyBiometric, false);
     await clearCredentialsQuietly();
@@ -156,6 +185,13 @@ class StorageService {
   // ── Profile ──────────────────────────────────────────────────────────────
 
   static Future<String> getAuthToken() async {
+    try {
+      final secure = await _secure.read(key: _secAuthToken);
+      if (secure != null && secure.isNotEmpty) return secure;
+    } catch (_) {
+      // Fall through to the mirror below.
+    }
+    // Also covers upgrades from a build that stored the token in preferences.
     final prefs = await SharedPreferences.getInstance();
     return prefs.getString(_keyAuthToken) ?? '';
   }
@@ -191,12 +227,28 @@ class StorageService {
 
   static String cleanUrl(String raw) {
     var url = raw.trim();
+
     if (!url.startsWith('http://') && !url.startsWith('https://')) {
-      url = 'http://$url';
+      // Default to HTTPS, not HTTP. A bare address typed in Settings is almost
+      // always the online bridge, and sending the login over plain HTTP would
+      // expose it. App Transport Security also blocks non-local HTTP, so the
+      // old http:// default produced a silent failure as well as a weak one.
+      // A local address is the one case where plain HTTP is still reasonable.
+      url = _looksLocal(url) ? 'http://$url' : 'https://$url';
     }
+
     if (url.endsWith('/')) {
       url = url.substring(0, url.length - 1);
     }
     return url;
+  }
+
+  /// True for an address on the local network, where plain HTTP is expected and
+  /// is what iOS permits under NSAllowsLocalNetworking.
+  static bool _looksLocal(String hostPart) {
+    final host = hostPart.split('/').first.split(':').first.toLowerCase();
+    if (host == 'localhost' || host.endsWith('.local')) return true;
+    return RegExp(r'^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|127\.)')
+        .hasMatch(host);
   }
 }
