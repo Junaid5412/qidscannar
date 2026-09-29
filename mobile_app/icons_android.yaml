@@ -1,0 +1,9 @@
+# Icon config for the Android job only.
+#
+# The Android job runs `flutter create --platforms=android`, so no ios/ folder
+# exists there. A shared config with `ios: true` makes the generator fail on a
+# missing AppIcon.appiconset, which is what broke the build.
+flutter_launcher_icons:
+  android: true
+  ios: false
+  image_path: "assets/icon/app_icon.png"

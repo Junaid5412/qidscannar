@@ -28,12 +28,3 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
-
-# App icon generation.
-# Apple rejects the default Flutter placeholder icon, and requires the App Store
-# icon to be opaque with square corners - iOS applies the rounding itself.
-flutter_launcher_icons:
-  android: true
-  ios: true
-  image_path: "assets/icon/app_icon.png"
-  remove_alpha_ios: true

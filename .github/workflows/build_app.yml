@@ -69,8 +69,10 @@ jobs:
       - name: Generate app icons
         working-directory: ./mobile_app
         # Replaces the default Flutter placeholder icon, which Apple rejects
-        # under guideline 4.0. Runs after pub get so the package is available.
-        run: dart run flutter_launcher_icons
+        # under guideline 4.0. Per-platform config: this job only creates the
+        # android/ folder, so a config touching ios/ would fail on a missing
+        # AppIcon.appiconset.
+        run: dart run flutter_launcher_icons -f icons_android.yaml
 
       - name: Build Android APK (Release)
         working-directory: ./mobile_app
@@ -156,8 +158,8 @@ jobs:
       - name: Generate app icons
         working-directory: ./mobile_app
         # Replaces the default Flutter placeholder icon, which Apple rejects
-        # under guideline 4.0. Runs after pub get so the package is available.
-        run: dart run flutter_launcher_icons
+        # under guideline 4.0.
+        run: dart run flutter_launcher_icons -f icons_ios.yaml
 
       - name: Build iOS Application
         working-directory: ./mobile_app

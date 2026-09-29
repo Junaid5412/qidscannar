@@ -1,0 +1,7 @@
+# Icon config for the iOS job only. See icons_android.yaml for why these are
+# split. remove_alpha_ios is required: Apple rejects an icon with transparency.
+flutter_launcher_icons:
+  android: false
+  ios: true
+  image_path: "assets/icon/app_icon.png"
+  remove_alpha_ios: true
