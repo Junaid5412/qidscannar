@@ -55,6 +55,16 @@ $stmt = $db->prepare($query);
 $stmt->execute($params);
 $payments = $stmt->fetchAll();
 
+// Show "No Record Found" popup when a search/filter returns nothing
+if (empty($payments) && ($search !== '' || $method_filter !== '' || $date_from !== '' || $date_to !== '')) {
+    $no_results_popup = [
+        'term'     => $search,
+        'message'  => $search !== '' ? "No payments match your search." : "No payments found for the selected filters.",
+        'clearUrl' => 'payments.php',
+        'showAdd'  => false,
+    ];
+}
+
 // Calculations for top statistics
 $total_collected = 0;
 $today_collected = 0;

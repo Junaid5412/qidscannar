@@ -93,6 +93,11 @@ foreach ($raw_records as $r) {
     $records[] = enrich_qid_record($r);
 }
 
+// Show "No Record Found" popup when a search/filter returns nothing
+if (empty($records) && ($search !== '' || $filter_expiry !== '' || $filter_payment !== '')) {
+    $no_results_popup = ['term' => $search, 'clearUrl' => 'records.php', 'showAdd' => true];
+}
+
 include __DIR__ . '/includes/header.php';
 ?>
 

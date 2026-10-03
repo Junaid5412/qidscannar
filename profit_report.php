@@ -149,6 +149,16 @@ $pending_profit = max(0, $total_profit - $realized_profit_total);
 $comp_stmt = $db->query("SELECT DISTINCT company_name FROM qid_records WHERE company_name IS NOT NULL AND company_name != '' ORDER BY company_name ASC");
 $all_companies = $comp_stmt->fetchAll(PDO::FETCH_COLUMN);
 
+// Show "No Record Found" popup when a search/filter returns nothing
+if (empty($records) && $is_filtered) {
+    $no_results_popup = [
+        'term'     => $search,
+        'message'  => $search !== '' ? "No records match your search for this period." : "No records found for the selected period / filters.",
+        'clearUrl' => 'profit_report.php',
+        'showAdd'  => false,
+    ];
+}
+
 include __DIR__ . '/includes/header.php';
 ?>
 

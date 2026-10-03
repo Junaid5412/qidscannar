@@ -155,16 +155,43 @@ document.addEventListener('DOMContentLoaded', () => {
     // 5. Client-side Live Table Filter (Instant Search)
     const tableSearchInput = document.getElementById('tableSearchInput');
     if (tableSearchInput) {
-        tableSearchInput.addEventListener('keyup', function() {
-            const query = this.value.toLowerCase().trim();
-            const targetTable = document.querySelector(this.dataset.tableTarget || '.table-filterable');
+        let noResultTimer = null;
+        let lastPopupTerm = '';
+
+        tableSearchInput.addEventListener('keyup', function(e) {
+            if (e.key === 'Enter') return; // form submit handles it server-side
+            const input = this;
+            const query = input.value.toLowerCase().trim();
+            const targetTable = document.querySelector(input.dataset.tableTarget || '.table-filterable');
             if (!targetTable) return;
 
             const rows = targetTable.querySelectorAll('tbody tr');
+            let visible = 0;
             rows.forEach(row => {
-                const text = row.textContent.toLowerCase();
-                row.style.display = text.includes(query) ? '' : 'none';
+                const match = row.textContent.toLowerCase().includes(query);
+                row.style.display = match ? '' : 'none';
+                if (match) visible++;
             });
+
+            clearTimeout(noResultTimer);
+            if (query !== '' && rows.length > 0 && visible === 0 && query !== lastPopupTerm) {
+                noResultTimer = setTimeout(() => {
+                    if (typeof window.showNoResultsPopup !== 'function') return;
+                    lastPopupTerm = query;
+                    window.showNoResultsPopup({
+                        term: input.value,
+                        showAdd: !!document.getElementById('recordsTable'),
+                        onClear: () => {
+                            input.value = '';
+                            lastPopupTerm = '';
+                            rows.forEach(row => { row.style.display = ''; });
+                        }
+                    });
+                    const modalEl = document.getElementById('noResultsModal');
+                    modalEl.addEventListener('hidden.bs.modal', () => input.focus(), { once: true });
+                }, 1000);
+            }
+            if (visible > 0) lastPopupTerm = '';
         });
     }
 
