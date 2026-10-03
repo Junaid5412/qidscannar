@@ -26,8 +26,12 @@ $query = "
 $params = [];
 
 if (!empty($search)) {
-    $query .= " AND (r.full_name LIKE :s OR r.qid_number LIKE :s OR p.receipt_no LIKE :s OR p.notes LIKE :s)";
-    $params[':s'] = "%{$search}%";
+    $query .= " AND (r.full_name LIKE :s1 OR r.qid_number LIKE :s2 OR p.receipt_no LIKE :s3 OR p.notes LIKE :s4)";
+    $like = "%{$search}%";
+    $params[':s1'] = $like;
+    $params[':s2'] = $like;
+    $params[':s3'] = $like;
+    $params[':s4'] = $like;
 }
 
 if (!empty($method_filter)) {

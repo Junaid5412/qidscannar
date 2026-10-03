@@ -54,8 +54,12 @@ $query = "
 $params = [];
 
 if (!empty($search)) {
-    $query .= " AND (r.full_name LIKE :s OR r.qid_number LIKE :s OR r.phone_number LIKE :s OR r.company_name LIKE :s)";
-    $params[':s'] = "%{$search}%";
+    $query .= " AND (r.full_name LIKE :s1 OR r.qid_number LIKE :s2 OR r.phone_number LIKE :s3 OR r.company_name LIKE :s4)";
+    $like = "%{$search}%";
+    $params[':s1'] = $like;
+    $params[':s2'] = $like;
+    $params[':s3'] = $like;
+    $params[':s4'] = $like;
 }
 
 $alert_days = (int)get_setting('expiry_alert_days', 30);
