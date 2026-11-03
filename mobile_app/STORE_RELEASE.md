@@ -1,6 +1,6 @@
 # QID Scanner — Google Play & App Store release guide
 
-App ID (both stores): **com.qid.scanner** · Name: **QID Scanner** · Version: see `pubspec.yaml` (build number = GitHub run number)
+App ID (both stores): **com.smartstep.qidscanner** · Name: **QID Scanner** · Version: see `pubspec.yaml` (build number = GitHub run number)
 Privacy policy: **https://q.sstqa.com/privacy** · Support / contact: **smartstepgps@gmail.com**
 
 ## What is already done in the project
@@ -37,9 +37,9 @@ Use Git Bash in `F:\QID-App-Signing\ios` (create the folder). Replace the e-mail
    openssl req -new -key distribution.key -out distribution.csr -subj "/emailAddress=smartstepgps@gmail.com/CN=Smart Step/C=QA"
    ```
 2. developer.apple.com → Certificates, IDs & Profiles:
-   - **Identifiers → +** App ID, explicit bundle ID `com.qid.scanner`, no extra capabilities.
+   - **Identifiers → +** App ID, explicit bundle ID `com.smartstep.qidscanner`, no extra capabilities.
    - **Certificates → +** **Apple Distribution** → upload `distribution.csr` → download `distribution.cer` into the same folder.
-   - **Profiles → +** **App Store Connect** → App ID `com.qid.scanner` → that certificate → name it `QID Scanner App Store` → download.
+   - **Profiles → +** **App Store Connect** → App ID `com.smartstep.qidscanner` → that certificate → name it `QID Scanner App Store` → download.
 3. Make the `.p12` (choose a password when asked; it becomes `IOS_CERT_PASSWORD`):
    ```bash
    openssl x509 -in distribution.cer -inform DER -out distribution.pem
@@ -125,7 +125,7 @@ Create app → name **QID Scanner**, default language English, **App**, **Free**
 
 ## 7. App Store Connect
 
-Apps → **+ New App** → iOS, name **QID Scanner** (if taken: *QID Scanner – Smart Step*), language English, bundle ID `com.qid.scanner`, SKU `qid-scanner`, full access.
+Apps → **+ New App** → iOS, name **QID Scanner** (if taken: *QID Scanner – Smart Step*), language English, bundle ID `com.smartstep.qidscanner`, SKU `qid-scanner`, full access.
 
 | Section | Answer |
 |---|---|

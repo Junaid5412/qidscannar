@@ -6,13 +6,13 @@
 #     privacy manifest since May 2024)
 #   - iPhone only (TARGETED_DEVICE_FAMILY = 1): an iPad build would need iPad
 #     screenshots and an iPad-ready layout before App Review accepts it
-#   - bundle id com.qid.scanner, iOS 15.5 minimum (ML Kit)
+#   - bundle id com.smartstep.qidscanner, iOS 15.5 minimum (ML Kit)
 #   - manual "Apple Distribution" signing when TEAM_ID and PROFILE_NAME are set
 #
 # Run from mobile_app/:  ruby ci/configure_ios_project.rb
 require 'xcodeproj'
 
-BUNDLE_ID = 'com.qid.scanner'
+BUNDLE_ID = 'com.smartstep.qidscanner'
 project = Xcodeproj::Project.open('ios/Runner.xcodeproj')
 runner = project.targets.find { |t| t.name == 'Runner' } or abort('Runner target not found')
 

@@ -1,4 +1,4 @@
-package com.qid.scanner
+package com.smartstep.qidscanner
 
 import io.flutter.embedding.android.FlutterFragmentActivity
 
