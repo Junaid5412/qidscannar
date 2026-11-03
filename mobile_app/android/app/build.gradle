@@ -22,6 +22,26 @@ if (flutterVersionName == null) {
     flutterVersionName = '1.0'
 }
 
+// Release signing (Google Play upload key). The passwords never live in the project:
+//  - on a PC: a key.properties file, by default android/key.properties, or the file named
+//    in the ANDROID_KEY_PROPERTIES environment variable (e.g. F:/QID-App-Signing/key.properties);
+//  - in GitHub Actions: ANDROID_KEYSTORE_PATH / ANDROID_KEYSTORE_PASSWORD / ANDROID_KEY_ALIAS /
+//    ANDROID_KEY_PASSWORD environment variables made from the repository secrets.
+// Without a key the release build falls back to the debug key: fine for testing, refused by Play.
+def keystoreProperties = new Properties()
+def keystorePropertiesFile = file(System.getenv('ANDROID_KEY_PROPERTIES') ?: rootProject.file('key.properties').path)
+if (keystorePropertiesFile.exists()) {
+    keystorePropertiesFile.withReader('UTF-8') { reader -> keystoreProperties.load(reader) }
+}
+def signingValue = { String property, String environment ->
+    keystoreProperties.getProperty(property) ?: System.getenv(environment)
+}
+def releaseStoreFile = signingValue('storeFile', 'ANDROID_KEYSTORE_PATH')
+def hasReleaseKey = releaseStoreFile != null && file(releaseStoreFile).exists()
+if (!hasReleaseKey) {
+    logger.warn('QID Scanner: no upload key found - release build is signed with the DEBUG key and cannot be uploaded to Google Play.')
+}
+
 android {
     namespace "com.qid.scanner"
     compileSdk 36
@@ -48,9 +68,20 @@ android {
         versionName flutterVersionName
     }
 
+    signingConfigs {
+        release {
+            if (hasReleaseKey) {
+                storeFile file(releaseStoreFile)
+                storePassword signingValue('storePassword', 'ANDROID_KEYSTORE_PASSWORD')
+                keyAlias signingValue('keyAlias', 'ANDROID_KEY_ALIAS')
+                keyPassword signingValue('keyPassword', 'ANDROID_KEY_PASSWORD')
+            }
+        }
+    }
+
     buildTypes {
         release {
-            signingConfig signingConfigs.debug
+            signingConfig hasReleaseKey ? signingConfigs.release : signingConfigs.debug
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
     }

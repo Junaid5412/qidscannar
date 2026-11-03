@@ -29,3 +29,21 @@ qid_management_db.sql
 /QID.zip
 /mobile_app.zip
 *.zip
+
+# Version 2 error log
+Version 2/app/storage/logs/*.log
+Version 2/app/storage/backups/
+Version 2/app/storage/bridge_link.txt
+Version 2/app/config.php
+Version 2/bridge/qid_bridge_data/
+
+Version 2/app/storage/clean-urls.ok
+Version 2/updates/
+
+# Mobile app signing secrets (never commit)
+mobile_app/android/key.properties
+*.jks
+*.keystore
+*.p12
+*.p8
+*.mobileprovision
