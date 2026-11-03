@@ -8,6 +8,7 @@ import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart
 import 'package:google_mlkit_barcode_scanning/google_mlkit_barcode_scanning.dart';
 
 import '../services/api_service.dart';
+import '../services/qid_parser.dart';
 import '../services/storage_service.dart';
 import '../widgets/manual_entry_dialog.dart';
 import '../widgets/scanner_overlay.dart';
@@ -31,7 +32,6 @@ class _ScannerScreenState extends State<ScannerScreen> {
   bool _isBusy = false;
   
   String _staffName = '';
-  String _staffUsername = '';
 
   Map<String, dynamic>? _lastResult;
   Map<String, String>? _lastExtractedData;
@@ -45,10 +45,9 @@ class _ScannerScreenState extends State<ScannerScreen> {
   bool _isResending = false;
   int _sendAttempts = 0;
 
-  Map<String, int> _qidDetectionCounts = {};
+  final Map<String, int> _qidDetectionCounts = {};
   DateTime _lastDetectionReset = DateTime.now();
 
-  static final RegExp _qidRegex = RegExp(r'\b(\d{11})\b');
 
   @override
   void initState() {
@@ -59,11 +58,9 @@ class _ScannerScreenState extends State<ScannerScreen> {
 
   Future<void> _loadStaffInfo() async {
     final name = await StorageService.getFullName();
-    final user = await StorageService.getUsername();
     if (mounted) {
       setState(() {
         _staffName = name;
-        _staffUsername = user;
       });
     }
   }
@@ -150,114 +147,42 @@ class _ScannerScreenState extends State<ScannerScreen> {
         return;
       }
 
-      String extractedQid = '';
-      String extractedName = '';
-      String extractedNationality = '';
-      String extractedJob = '';
-      String extractedExpiry = '';
+      String? qid;
       String scanType = '';
+      List<String> lines = const [];
 
-      // 1. Barcode Scanning (Fastest)
+      // 1. Barcode on the back of the card (fastest, most reliable)
       final barcodes = await _barcodeScanner.processImage(inputImage);
       for (final barcode in barcodes) {
         final raw = barcode.rawValue;
-        if (raw != null) {
-          final digits = raw.replaceAll(RegExp(r'[^0-9]'), '');
-          if (digits.length == 11) {
-            extractedQid = digits;
-            scanType = 'barcode';
-            break;
-          }
+        qid = raw == null ? null : QidParser.fromBarcode(raw);
+        if (qid != null) {
+          scanType = 'barcode';
+          break;
         }
       }
 
-      // 2. OCR Scanning
-      if (extractedQid.isEmpty) {
+      // 2. Text on the card (front side, or a damaged barcode)
+      if (qid == null) {
         final recognizedText = await _textRecognizer.processImage(inputImage);
-        final lines = recognizedText.blocks.expand((b) => b.lines).map((l) => l.text).toList();
-        final commonNationalities = ['INDIA', 'PAKISTAN', 'BANGLADESH', 'NEPAL', 'PHILIPPINES', 'SRI LANKA', 'EGYPT', 'SUDAN', 'SYRIA', 'JORDAN', 'LEBANON', 'KENYA', 'UGANDA', 'MOROCCO', 'TUNISIA', 'ALGERIA', 'YEMEN', 'INDONESIA', 'MALAYSIA', 'TURKEY', 'NIGERIA', 'GHANA'];
-        final exclusions = ['STATE OF QATAR', 'RESIDENCY PERMIT', 'RESIDENCE PERMIT', 'ID.NO', 'D.O.B', 'EXPIRY', 'NATIONALITY', 'OCCUPATION', 'PASSPORT', 'SERIAL NO', 'EMPLOYER', 'DIRECTOR', 'GENERAL', 'SIGNATURE', 'BLOOD', 'PAYMENT', 'COLLECTION', 'REMINDER', 'MINISTRY', 'INTERIOR', 'DATE'];
-        
-        for (int i = 0; i < lines.length; i++) {
-          final line = lines[i].trim();
-          final lineUpper = line.toUpperCase();
-          
-          if (extractedQid.isEmpty) {
-             final qidMatch = _qidRegex.firstMatch(line);
-             if (qidMatch != null) {
-               extractedQid = qidMatch.group(1)!;
-               scanType = 'ocr';
-             } else {
-               final noSpaceLine = line.replaceAll(' ', '');
-               final serialMatch = RegExp(r'[A-Z0-9]+(\d{11})$').firstMatch(noSpaceLine);
-               if (serialMatch != null) {
-                 extractedQid = serialMatch.group(1)!;
-                 scanType = 'ocr';
-               }
-             }
-          }
-
-          if (extractedExpiry.isEmpty) {
-              final dateMatches = RegExp(r'\b(\d{2}[-/]\d{2}[-/]\d{4}|\d{4}[-/]\d{2}[-/]\d{2})\b').allMatches(line);
-              for (final m in dateMatches) {
-                 final d = m.group(1)!;
-                 if (d.contains('202') || d.contains('203')) {
-                    if (RegExp(r'^\d{2}[-/]\d{2}[-/]\d{4}$').hasMatch(d)) {
-                       final parts = d.split(RegExp(r'[-/]'));
-                       extractedExpiry = '${parts[2]}-${parts[1]}-${parts[0]}';
-                    } else if (RegExp(r'^\d{4}[-/]\d{2}[-/]\d{2}$').hasMatch(d)) {
-                       extractedExpiry = d.replaceAll('/', '-');
-                    }
-                 }
-              }
-          }
-
-          if (extractedNationality.isEmpty) {
-             for (final nat in commonNationalities) {
-                if (lineUpper.contains(nat)) {
-                   extractedNationality = nat;
-                   break;
-                }
-             }
-          }
-
-          if (lineUpper.startsWith('NAME:') || lineUpper.startsWith('NAME ')) {
-             extractedName = lineUpper.replaceFirst(RegExp(r'^NAME\s*[:\-]*\s*'), '').trim();
-          } else if (extractedName.isEmpty && RegExp(r'^[A-Z\s\-]+$').hasMatch(lineUpper) && lineUpper.length > 8) {
-             bool isExcluded = false;
-             for (final ex in exclusions) {
-                 if (lineUpper.contains(ex)) {
-                     isExcluded = true;
-                     break;
-                 }
-             }
-             if (!isExcluded && lineUpper != extractedNationality) {
-                 extractedName = line;
-             }
-          }
-        }
+        lines = recognizedText.blocks.expand((b) => b.lines).map((l) => l.text).toList();
+        qid = QidParser.fromText(lines);
+        if (qid != null) scanType = 'ocr';
       }
 
-      // 3. Process matched QID with Debounce Buffer
-      if (extractedQid.isNotEmpty && extractedQid.length == 11) {
-          // Reset buffer if it's been more than 2 seconds since last detection
-          if (DateTime.now().difference(_lastDetectionReset).inSeconds > 2) {
-              _qidDetectionCounts.clear();
-          }
-          _lastDetectionReset = DateTime.now();
+      // 3. Only accept a QID read the same way on consecutive frames: 2 for a barcode,
+      //    3 for text (OCR misreads a digit more often than a barcode does).
+      if (qid != null) {
+        if (DateTime.now().difference(_lastDetectionReset).inSeconds > 2) {
+          _qidDetectionCounts.clear();
+        }
+        _lastDetectionReset = DateTime.now();
+        _qidDetectionCounts[qid] = (_qidDetectionCounts[qid] ?? 0) + 1;
 
-          _qidDetectionCounts[extractedQid] = (_qidDetectionCounts[extractedQid] ?? 0) + 1;
-          
-          // Require at least 2 consecutive frames of the same QID to prevent fast/incorrect scans
-          if (_qidDetectionCounts[extractedQid]! >= 2) {
-              _qidDetectionCounts.clear();
-              await _handleScan(extractedQid, scanType, {
-                'name': extractedName,
-                'nationality': extractedNationality,
-                'job': extractedJob,
-                'expiry': extractedExpiry,
-              });
-          }
+        if (_qidDetectionCounts[qid]! >= (scanType == 'barcode' ? 2 : 3)) {
+          _qidDetectionCounts.clear();
+          await _handleScan(qid, scanType, _cardData(qid, lines));
+        }
       }
 
     } catch (e) {
@@ -267,6 +192,18 @@ class _ScannerScreenState extends State<ScannerScreen> {
     if (mounted) {
       _isBusy = false;
     }
+  }
+
+  /// Details read from the card for the desktop's "register this person" form.
+  /// Nationality also comes from the QID digits, so barcode and manual scans have it too.
+  Map<String, String> _cardData(String qid, List<String> lines) {
+    final data = <String, String>{
+      'name': QidParser.nameFrom(lines) ?? '',
+      'nationality': QidParser.nationality(qid, lines) ?? '',
+      'expiry': QidParser.expiryFrom(lines) ?? '',
+    };
+    data.removeWhere((_, v) => v.isEmpty);
+    return data;
   }
 
   Future<void> _handleScan(String qid, String scanType, [Map<String, String> cardData = const {}]) async {
@@ -361,11 +298,9 @@ class _ScannerScreenState extends State<ScannerScreen> {
   void _showManualEntry() {
     showDialog(
       context: context,
+      // the dialog closes itself; closing it here too would also close the scanner screen
       builder: (ctx) => ManualEntryDialog(
-        onSubmit: (qid) {
-          Navigator.pop(ctx);
-          _handleScan(qid, 'manual');
-        },
+        onSubmit: (qid) => _handleScan(qid, 'manual', _cardData(qid, const [])),
       ),
     );
   }

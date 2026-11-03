@@ -1,4 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+
+import '../services/qid_parser.dart';
 
 class ManualEntryDialog extends StatefulWidget {
   final Function(String qid) onSubmit;
@@ -15,13 +18,12 @@ class _ManualEntryDialogState extends State<ManualEntryDialog> {
 
   void _submit() {
     final text = _controller.text.trim();
-    if (text.length < 8) {
-      setState(() {
-        _error = 'Please enter a valid Qatar ID (11 digits)';
-      });
+    final problem = QidParser.problem(text);
+    if (problem != null) {
+      setState(() => _error = problem);
       return;
     }
-    Navigator.of(context).pop();
+    Navigator.of(context).pop();   // the only place this dialog is closed
     widget.onSubmit(text);
   }
 
@@ -55,6 +57,9 @@ class _ManualEntryDialogState extends State<ManualEntryDialog> {
               keyboardType: TextInputType.number,
               maxLength: 11,
               autofocus: true,
+              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+              onChanged: (_) { if (_error != null) setState(() => _error = null); },
+              onSubmitted: (_) => _submit(),
               style: const TextStyle(
                 color: Colors.white,
                 fontFamily: 'monospace',
