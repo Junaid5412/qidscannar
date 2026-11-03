@@ -74,13 +74,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final link = _linkController.text.trim();
 
     if (link.isEmpty) {
-      _toast('Enter a server link first.', good: false);
+      _toast('Enter the server address first.', good: false);
       return;
     }
 
     await StorageService.setServerUrl(link);
     if (!mounted) return;
-    _toast('Server link saved.');
+    _toast('Server address saved.');
     _checkServer();
   }
 
@@ -89,7 +89,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final url = await StorageService.getServerUrl();
     if (!mounted) return;
     setState(() => _linkController.text = url);
-    _toast('Reset to the default link.');
+    _toast('Reset to the default address.');
   }
 
   Future<void> _checkServer() async {
@@ -238,14 +238,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
           const SizedBox(height: 24),
 
           // ── Server link ────────────────────────────────────────────────
-          _sectionLabel('SERVER LINK'),
+          _sectionLabel('SERVER ADDRESS'),
           _card(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const Text(
-                  'The bridge link from your QID system. The same link goes in '
-                  'QID Settings on the PC.',
+                  'Your QID server address, e.g. https://q.sstqa.com '
+                  '(Settings, Mobile app on the QID website shows it).',
                   style: TextStyle(color: Color(0xFF94A3B8), fontSize: 12, height: 1.4),
                 ),
                 const SizedBox(height: 12),
@@ -257,7 +257,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   maxLines: 3,
                   minLines: 1,
                   decoration: InputDecoration(
-                    hintText: 'https://yourdomain.com/bridge.php/...',
+                    hintText: StorageService.defaultServerUrl,
                     hintStyle: const TextStyle(color: Color(0xFF64748B), fontSize: 12),
                     filled: true,
                     fillColor: const Color(0xFF0F172A),

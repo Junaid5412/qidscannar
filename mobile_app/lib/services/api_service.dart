@@ -7,11 +7,11 @@ import 'storage_service.dart';
 /// Talks to the QID system at whichever address is configured.
 ///
 /// The app no longer searches the local network for the PC. It connects to one
-/// fixed address - the online bridge - which works on any Wi-Fi and on mobile
-/// data, so there is nothing to detect and nothing to go stale.
+/// fixed internet address (the live QID server, or an online bridge for an
+/// install on an office PC), which works on any Wi-Fi and on mobile data.
 class ApiService {
-  /// Requests through the bridge cross the internet twice (phone to host, host
-  /// to PC), so budgets are generous compared with a direct LAN call.
+  /// A bridge crosses the internet twice (phone to host, host to PC), so the
+  /// budgets stay generous compared with a direct call.
   static const Duration _checkTimeout = Duration(seconds: 20);
   static const Duration _loginTimeout = Duration(seconds: 25);
   static const Duration _scanTimeout = Duration(seconds: 25);
@@ -34,7 +34,7 @@ class ApiService {
       final dynamic data = jsonDecode(response.body);
 
       if (data is Map && data['app'] == 'qid_scanner') {
-        final host = data['hostname'] ?? 'the QID PC';
+        final host = data['hostname'] ?? 'the QID server';
         return {'success': true, 'message': 'Connected to $host.'};
       }
 
@@ -106,7 +106,7 @@ class ApiService {
     } on SocketException catch (e) {
       return {'success': false, 'message': 'No internet: ${e.message}'};
     } on TimeoutException {
-      return {'success': false, 'message': 'Login timed out. Is the PC connector running?'};
+      return {'success': false, 'message': 'Login timed out. Check the internet connection and the server address.'};
     } on FormatException {
       return {'success': false, 'message': 'The server did not return a valid response.'};
     } catch (e) {
@@ -155,7 +155,7 @@ class ApiService {
     } on TimeoutException {
       return {
         'success': false,
-        'message': 'Sync timed out. Check the PC is on and the connector is running.'
+        'message': 'Sync timed out. Check the internet connection and try again.'
       };
     } on FormatException {
       return {'success': false, 'message': 'The server returned an unreadable response.'};

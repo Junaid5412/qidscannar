@@ -16,6 +16,7 @@ class LoginScreen extends StatefulWidget {
 }
 
 class _LoginScreenState extends State<LoginScreen> {
+  final _serverController = TextEditingController();
   final _usernameController = TextEditingController();
   final _passwordController = TextEditingController();
 
@@ -39,12 +40,14 @@ class _LoginScreenState extends State<LoginScreen> {
 
   @override
   void dispose() {
+    _serverController.dispose();
     _usernameController.dispose();
     _passwordController.dispose();
     super.dispose();
   }
 
   Future<void> _restoreState() async {
+    final serverUrl = await StorageService.getServerUrl();
     final saveLogin = await StorageService.isSaveLoginEnabled();
     final savedUsername = await StorageService.getSavedUsername();
     final biometricEnabled = await StorageService.isBiometricEnabled();
@@ -55,6 +58,7 @@ class _LoginScreenState extends State<LoginScreen> {
     if (!mounted) return;
 
     setState(() {
+      _serverController.text = serverUrl;
       _saveLogin = saveLogin;
       _usernameController.text = savedUsername ?? '';
       _biometricAvailable = available;
@@ -100,7 +104,8 @@ class _LoginScreenState extends State<LoginScreen> {
       _isStatusPositive = true;
     });
 
-    final res = await ApiService.checkServer();
+    final typed = _serverController.text.trim();
+    final res = await ApiService.checkServer(typed.isEmpty ? null : typed);
 
     if (!mounted) return;
     setState(() {
@@ -124,6 +129,9 @@ class _LoginScreenState extends State<LoginScreen> {
       _statusMessage = null;
     });
 
+    // The address typed on this screen is the one to use (and keep).
+    final typedServer = _serverController.text.trim();
+    if (typedServer.isNotEmpty) await StorageService.setServerUrl(typedServer);
     final serverUrl = await StorageService.getServerUrl();
     final res = await ApiService.login(
       serverUrl: serverUrl,
@@ -240,6 +248,19 @@ class _LoginScreenState extends State<LoginScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
+                      _label('SERVER ADDRESS'),
+                      const SizedBox(height: 6),
+                      TextField(
+                        controller: _serverController,
+                        style: const TextStyle(color: Colors.white, fontSize: 14),
+                        keyboardType: TextInputType.url,
+                        autocorrect: false,
+                        enableSuggestions: false,
+                        textInputAction: TextInputAction.next,
+                        decoration: _fieldDecoration(StorageService.defaultServerUrl),
+                      ),
+                      const SizedBox(height: 16),
+
                       _label('USERNAME'),
                       const SizedBox(height: 6),
                       TextField(
@@ -409,7 +430,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 Text(
                   _biometricAvailable
                       ? 'Tip: tick "Save login", then turn on $_biometricLabel in Settings.'
-                      : 'The server address is set in Settings.',
+                      : 'Your company\'s QID server address, e.g. ${StorageService.defaultServerUrl}',
                   textAlign: TextAlign.center,
                   style: const TextStyle(color: Color(0xFF64748B), fontSize: 11),
                 ),

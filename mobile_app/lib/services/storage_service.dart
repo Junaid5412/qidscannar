@@ -2,13 +2,15 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class StorageService {
-  /// The online bridge this app ships pointed at.
+  /// The live QID server this app ships pointed at.
   ///
-  /// The bridge gives the PC a fixed address that does not change with Wi-Fi,
-  /// DHCP or location, which is why the app no longer hunts for the PC on the
-  /// local network. It is editable in Settings for a different install.
-  static const String defaultServerUrl =
-      'https://sstqa.com/qidbridge/bridge.php/7fdbfd2eed51e7bc14729978';
+  /// A fixed internet address that works on any Wi-Fi and on mobile data. It can
+  /// be changed on the login screen or in Settings for a different install.
+  static const String defaultServerUrl = 'https://q.sstqa.com';
+
+  /// The old online-bridge link that earlier builds saved. That bridge has been
+  /// retired, so a phone still holding it is moved to [defaultServerUrl].
+  static const String _retiredBridge = 'sstqa.com/qidbridge/bridge.php';
 
   static const String _keyServerUrl = 'server_url';
   static const String _keyAuthToken = 'auth_token';
@@ -109,6 +111,10 @@ class StorageService {
     final prefs = await SharedPreferences.getInstance();
     final saved = prefs.getString(_keyServerUrl);
     if (saved == null || saved.trim().isEmpty) return defaultServerUrl;
+    if (saved.contains(_retiredBridge)) {
+      await prefs.setString(_keyServerUrl, defaultServerUrl);
+      return defaultServerUrl;
+    }
     return saved;
   }
 
